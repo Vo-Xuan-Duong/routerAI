@@ -2,6 +2,7 @@
 
 #include <sqlite3.h>
 
+#include <algorithm>
 #include <stdexcept>
 #include <utility>
 
@@ -27,6 +28,42 @@ void checkSqlite(int rc, sqlite3* db, const char* context) {
 std::string columnText(sqlite3_stmt* stmt, int index) {
     const auto* value = sqlite3_column_text(stmt, index);
     return value ? reinterpret_cast<const char*>(value) : std::string{};
+}
+
+std::optional<std::int64_t> columnOptionalInt64(sqlite3_stmt* stmt, int index) {
+    if (sqlite3_column_type(stmt, index) == SQLITE_NULL) {
+        return std::nullopt;
+    }
+    return sqlite3_column_int64(stmt, index);
+}
+
+std::optional<bool> columnOptionalBool(sqlite3_stmt* stmt, int index) {
+    if (sqlite3_column_type(stmt, index) == SQLITE_NULL) {
+        return std::nullopt;
+    }
+    return sqlite3_column_int(stmt, index) != 0;
+}
+
+void bindOptionalInt64(
+    sqlite3_stmt* stmt,
+    int index,
+    const std::optional<std::int64_t>& value) {
+    if (value) {
+        sqlite3_bind_int64(stmt, index, *value);
+    } else {
+        sqlite3_bind_null(stmt, index);
+    }
+}
+
+void bindOptionalBool(
+    sqlite3_stmt* stmt,
+    int index,
+    const std::optional<bool>& value) {
+    if (value) {
+        sqlite3_bind_int(stmt, index, *value ? 1 : 0);
+    } else {
+        sqlite3_bind_null(stmt, index);
+    }
 }
 
 Account readAccount(sqlite3_stmt* stmt) {
@@ -115,6 +152,42 @@ void SQLiteDatabase::initialize() {
     if (!columnExists("accounts", "plan_type")) {
         execute("ALTER TABLE accounts ADD COLUMN plan_type TEXT NOT NULL DEFAULT '';" );
     }
+
+    execute(
+        "CREATE TABLE IF NOT EXISTS quota_snapshots ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "account_id TEXT NOT NULL,"
+        "captured_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+        "ordinary_usage_allowed INTEGER NULL,"
+        "provider_account_id TEXT NOT NULL DEFAULT ''"
+        ");"
+    );
+
+    execute(
+        "CREATE TABLE IF NOT EXISTS quota_windows ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "snapshot_id INTEGER NOT NULL,"
+        "limit_id TEXT NOT NULL DEFAULT '',"
+        "limit_name TEXT NOT NULL DEFAULT '',"
+        "model TEXT NOT NULL DEFAULT '',"
+        "plan_type TEXT NOT NULL DEFAULT '',"
+        "reached_type TEXT NOT NULL DEFAULT '',"
+        "window_name TEXT NOT NULL DEFAULT '',"
+        "used_percent REAL NOT NULL DEFAULT 0,"
+        "window_duration_mins INTEGER NULL,"
+        "resets_at_unix INTEGER NULL,"
+        "FOREIGN KEY(snapshot_id) REFERENCES quota_snapshots(id) ON DELETE CASCADE"
+        ");"
+    );
+
+    execute(
+        "CREATE INDEX IF NOT EXISTS idx_quota_snapshots_account_id "
+        "ON quota_snapshots(account_id, id DESC);"
+    );
+    execute(
+        "CREATE INDEX IF NOT EXISTS idx_quota_windows_snapshot_id "
+        "ON quota_windows(snapshot_id);"
+    );
 }
 
 void SQLiteDatabase::insertAccount(const Account& account) {
@@ -223,6 +296,127 @@ std::size_t SQLiteDatabase::countAccounts() const {
 
     sqlite3_finalize(stmt);
     return count;
+}
+
+void SQLiteDatabase::recordQuotaSnapshot(
+    const std::string& accountId,
+    const QuotaSnapshot& snapshot) {
+    execute("BEGIN IMMEDIATE;");
+    try {
+        constexpr const char* snapshotSql =
+            "INSERT INTO quota_snapshots(account_id, ordinary_usage_allowed, provider_account_id) "
+            "VALUES(?, ?, ?);";
+        sqlite3_stmt* snapshotStmt = nullptr;
+        checkSqlite(
+            sqlite3_prepare_v2(db_, snapshotSql, -1, &snapshotStmt, nullptr),
+            db_,
+            "prepare quota snapshot");
+
+        sqlite3_bind_text(snapshotStmt, 1, accountId.c_str(), -1, SQLITE_TRANSIENT);
+        bindOptionalBool(snapshotStmt, 2, snapshot.ordinaryUsageAllowed);
+        sqlite3_bind_text(snapshotStmt, 3, snapshot.accountId.c_str(), -1, SQLITE_TRANSIENT);
+
+        const int snapshotRc = sqlite3_step(snapshotStmt);
+        if (snapshotRc != SQLITE_DONE) {
+            const std::string message = sqlite3_errmsg(db_);
+            sqlite3_finalize(snapshotStmt);
+            throw std::runtime_error("insert quota snapshot: " + message);
+        }
+        sqlite3_finalize(snapshotStmt);
+
+        const std::int64_t snapshotId = sqlite3_last_insert_rowid(db_);
+        constexpr const char* windowSql =
+            "INSERT INTO quota_windows("
+            "snapshot_id, limit_id, limit_name, model, plan_type, reached_type, "
+            "window_name, used_percent, window_duration_mins, resets_at_unix) "
+            "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
+
+        sqlite3_stmt* windowStmt = nullptr;
+        checkSqlite(
+            sqlite3_prepare_v2(db_, windowSql, -1, &windowStmt, nullptr),
+            db_,
+            "prepare quota window");
+
+        for (const auto& bucket : snapshot.buckets) {
+            for (const auto& window : bucket.windows) {
+                sqlite3_reset(windowStmt);
+                sqlite3_clear_bindings(windowStmt);
+                sqlite3_bind_int64(windowStmt, 1, snapshotId);
+                sqlite3_bind_text(windowStmt, 2, bucket.limitId.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_text(windowStmt, 3, bucket.limitName.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_text(windowStmt, 4, bucket.model.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_text(windowStmt, 5, bucket.planType.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_text(windowStmt, 6, bucket.reachedType.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_text(windowStmt, 7, window.name.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_double(windowStmt, 8, window.usedPercent);
+                bindOptionalInt64(windowStmt, 9, window.windowDurationMinutes);
+                bindOptionalInt64(windowStmt, 10, window.resetsAtUnix);
+
+                const int windowRc = sqlite3_step(windowStmt);
+                if (windowRc != SQLITE_DONE) {
+                    const std::string message = sqlite3_errmsg(db_);
+                    sqlite3_finalize(windowStmt);
+                    throw std::runtime_error("insert quota window: " + message);
+                }
+            }
+        }
+        sqlite3_finalize(windowStmt);
+        execute("COMMIT;");
+    } catch (...) {
+        try {
+            execute("ROLLBACK;");
+        } catch (...) {
+        }
+        throw;
+    }
+}
+
+std::vector<QuotaHistoryEntry> SQLiteDatabase::listQuotaHistory(
+    const std::string& accountId,
+    std::size_t limit) const {
+    constexpr const char* sql =
+        "SELECT s.id, s.captured_at, s.account_id, s.ordinary_usage_allowed, "
+        "s.provider_account_id, w.limit_id, w.limit_name, w.model, w.plan_type, "
+        "w.reached_type, w.window_name, w.used_percent, w.window_duration_mins, "
+        "w.resets_at_unix "
+        "FROM quota_snapshots s "
+        "JOIN quota_windows w ON w.snapshot_id = s.id "
+        "WHERE s.account_id = ? "
+        "ORDER BY s.id DESC, w.id ASC "
+        "LIMIT ?;";
+
+    sqlite3_stmt* stmt = nullptr;
+    checkSqlite(
+        sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr),
+        db_,
+        "prepare quota history");
+
+    sqlite3_bind_text(stmt, 1, accountId.c_str(), -1, SQLITE_TRANSIENT);
+    const auto boundedLimit = std::clamp<std::size_t>(limit, 1, 500);
+    sqlite3_bind_int64(stmt, 2, static_cast<sqlite3_int64>(boundedLimit));
+
+    std::vector<QuotaHistoryEntry> entries;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        QuotaHistoryEntry entry;
+        entry.snapshotId = sqlite3_column_int64(stmt, 0);
+        entry.capturedAt = columnText(stmt, 1);
+        entry.accountId = columnText(stmt, 2);
+        entry.ordinaryUsageAllowed = columnOptionalBool(stmt, 3);
+        entry.providerAccountId = columnText(stmt, 4);
+        entry.limitId = columnText(stmt, 5);
+        entry.limitName = columnText(stmt, 6);
+        entry.model = columnText(stmt, 7);
+        entry.planType = columnText(stmt, 8);
+        entry.reachedType = columnText(stmt, 9);
+        entry.windowName = columnText(stmt, 10);
+        entry.usedPercent = sqlite3_column_double(stmt, 11);
+        entry.windowDurationMinutes = columnOptionalInt64(stmt, 12);
+        entry.resetsAtUnix = columnOptionalInt64(stmt, 13);
+        entries.push_back(std::move(entry));
+    }
+
+    sqlite3_finalize(stmt);
+    return entries;
 }
 
 }  // namespace routerai
