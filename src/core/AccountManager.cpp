@@ -31,6 +31,29 @@ void appendDetail(std::string& detail, const std::string& extra) {
     detail += extra;
 }
 
+std::optional<AccountStatus> statusFromQuota(const QuotaSnapshot& snapshot) {
+    if (!snapshot.ordinaryUsageAllowed.has_value()) {
+        return std::nullopt;
+    }
+    if (!*snapshot.ordinaryUsageAllowed) {
+        return AccountStatus::Limited;
+    }
+
+    double highestUsedPercent = 0.0;
+    bool reachedSignal = false;
+    for (const auto& bucket : snapshot.buckets) {
+        reachedSignal = reachedSignal || !bucket.reachedType.empty();
+        for (const auto& window : bucket.windows) {
+            highestUsedPercent = std::max(highestUsedPercent, window.usedPercent);
+        }
+    }
+
+    if (reachedSignal || highestUsedPercent >= 90.0) {
+        return AccountStatus::Warning;
+    }
+    return AccountStatus::Ready;
+}
+
 }  // namespace
 
 AccountManager::AccountManager(SQLiteDatabase& database) : database_(database) {}
@@ -130,6 +153,13 @@ QuotaSnapshot AccountManager::readQuota(const std::string& accountId) {
     CodexProvider provider;
     QuotaSnapshot snapshot = provider.readQuota(*account);
     database_.recordQuotaSnapshot(accountId, snapshot);
+
+    if (const auto derivedStatus = statusFromQuota(snapshot)) {
+        Account updated = *account;
+        updated.status = *derivedStatus;
+        database_.updateAccount(updated);
+    }
+
     return snapshot;
 }
 
