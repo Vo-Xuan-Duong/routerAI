@@ -141,13 +141,13 @@ void RoutingManager::syncDefaultGroups() {
 
     RoutingGroup codex;
     codex.id = "codex-default";
-    codex.displayName = "Codex default";
-    codex.strategy = RoutingStrategy::HealthFirst;
+    codex.displayName = "Codex manual";
+    codex.strategy = RoutingStrategy::Manual;
 
     RoutingGroup antigravity;
     antigravity.id = "antigravity-default";
-    antigravity.displayName = "Antigravity default";
-    antigravity.strategy = RoutingStrategy::HealthFirst;
+    antigravity.displayName = "Antigravity manual";
+    antigravity.strategy = RoutingStrategy::Manual;
 
     RoutingGroup zai;
     zai.id = "zai-default";
@@ -156,13 +156,14 @@ void RoutingManager::syncDefaultGroups() {
 
     RoutingGroup mixed;
     mixed.id = "mixed-default";
-    mixed.displayName = "Mixed default";
+    mixed.displayName = "Mixed API default";
     mixed.strategy = RoutingStrategy::HealthFirst;
 
     for (const auto& account : accounts) {
         if (account.provider == "codex") {
+            // ChatGPT/Codex consumer profiles may be selected explicitly, but
+            // are not automatically pooled into mixed/failover routing.
             codex.accountIds.push_back(account.id);
-            mixed.accountIds.push_back(account.id);
         } else if (account.provider == "antigravity") {
             antigravity.accountIds.push_back(account.id);
             if (account.providerMode == "api-project") {
@@ -170,26 +171,37 @@ void RoutingManager::syncDefaultGroups() {
             }
         } else if (account.provider == "zai") {
             zai.accountIds.push_back(account.id);
-            if (account.providerMode != "coding-plan") {
+            if (account.providerMode == "general-api") {
                 mixed.accountIds.push_back(account.id);
             }
         }
     }
 
-    const auto keepStrategy = [&](RoutingGroup& group) {
+    const auto persist = [&](RoutingGroup& group, bool forceManual) {
         if (const auto existing = database_.findRoutingGroup(group.id)) {
-            group.strategy = existing->strategy;
             group.enabled = existing->enabled;
             group.manualAccountId = existing->manualAccountId;
             group.lastIndex = existing->lastIndex;
+            if (!forceManual) {
+                group.strategy = existing->strategy;
+            }
         }
+
+        if (forceManual) {
+            group.strategy = RoutingStrategy::Manual;
+            if (!group.manualAccountId.empty() &&
+                std::find(group.accountIds.begin(), group.accountIds.end(), group.manualAccountId) == group.accountIds.end()) {
+                group.manualAccountId.clear();
+            }
+        }
+
         database_.saveRoutingGroup(group);
     };
 
-    keepStrategy(codex);
-    keepStrategy(antigravity);
-    keepStrategy(zai);
-    keepStrategy(mixed);
+    persist(codex, true);
+    persist(antigravity, true);
+    persist(zai, false);
+    persist(mixed, false);
 }
 
 std::vector<RoutingCandidate> RoutingManager::candidatesFor(const RoutingGroup& group) const {
