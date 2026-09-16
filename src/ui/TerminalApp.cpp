@@ -2,79 +2,139 @@
 
 #include "providers/codex/CodexProvider.hpp"
 
+#include <ftxui/component/component.hpp>
+#include <ftxui/component/event.hpp>
+#include <ftxui/component/screen_interactive.hpp>
+#include <ftxui/dom/elements.hpp>
+
 #include <algorithm>
-#include <chrono>
 #include <ctime>
 #include <iomanip>
-#include <iostream>
-#include <limits>
 #include <sstream>
 #include <stdexcept>
 
 namespace routerai {
+
+namespace {
+
+using namespace ftxui;
+
+Color statusColor(AccountStatus status) {
+    switch (status) {
+        case AccountStatus::Ready: return Color::Green;
+        case AccountStatus::Warning: return Color::Yellow;
+        case AccountStatus::Limited: return Color::Red;
+        case AccountStatus::AuthExpired: return Color::Magenta;
+        case AccountStatus::Disabled: return Color::GrayDark;
+        case AccountStatus::Error: return Color::Red;
+    }
+    return Color::White;
+}
+
+Element statusBadge(AccountStatus status) {
+    return text(" " + toString(status) + " ") |
+        bold |
+        color(statusColor(status));
+}
+
+Element keyHint(const std::string& keys, const std::string& action) {
+    return hbox({
+        text(" " + keys + " ") | bold | color(Color::Cyan),
+        text(action) | dim,
+    });
+}
+
+Element appHeader(const std::string& subtitle = {}) {
+    Elements items;
+    items.push_back(text(" routerAI ") | bold | color(Color::Cyan));
+    items.push_back(text("0.4.0") | dim);
+    if (!subtitle.empty()) {
+        items.push_back(text("  /  " + subtitle) | dim);
+    }
+    items.push_back(filler());
+    items.push_back(text("Terminal Account Router ") | dim);
+    return hbox(std::move(items));
+}
+
+Element accountCard(const Account& account) {
+    const std::string identity = account.email.empty()
+        ? account.displayName
+        : account.email;
+
+    Elements rows = {
+        text(account.id) | bold | color(Color::Cyan),
+        separator(),
+        hbox({text("Status    : "), statusBadge(account.status)}),
+        text("Provider  : " + account.provider),
+        text("Plan      : " + (account.planType.empty() ? std::string("-") : account.planType)),
+        text("Priority  : " + std::to_string(account.priority)),
+        text("Account   : " + (identity.empty() ? std::string("-") : identity)),
+        text("Runtime   : " + account.runtimeHome) | dim,
+    };
+
+    return vbox(std::move(rows)) | border | flex;
+}
+
+std::string percentText(double value) {
+    std::ostringstream output;
+    output << std::fixed << std::setprecision(1) << value << '%';
+    return output.str();
+}
+
+Color quotaColor(double usedPercent) {
+    if (usedPercent >= 90.0) {
+        return Color::Red;
+    }
+    if (usedPercent >= 70.0) {
+        return Color::Yellow;
+    }
+    return Color::Green;
+}
+
+}  // namespace
 
 TerminalApp::TerminalApp(SQLiteDatabase& database, AccountManager& accounts)
     : database_(database), accounts_(accounts) {}
 
 int TerminalApp::run() {
     while (true) {
-        printHeader();
-        printMainMenu();
-
-        const auto choice = readChoice(0, 9);
-        if (!choice || *choice == 0) {
-            std::cout << "Goodbye.\n";
+        const MainAction action = chooseMainAction();
+        if (action == MainAction::Exit) {
             return 0;
         }
 
-        std::cout << '\n';
         try {
-            switch (*choice) {
-                case 1: showDashboard(); break;
-                case 2: showAccounts(); break;
-                case 3: addCodexAccount(); break;
-                case 4: loginAccount(); break;
-                case 5: refreshAccount(); break;
-                case 6: showQuota(); break;
-                case 7: showQuotaHistory(); break;
-                case 8: showSelectedAccount(); break;
-                case 9: showDoctor(); break;
-                default: break;
+            switch (action) {
+                case MainAction::Dashboard: showDashboard(); break;
+                case MainAction::Accounts: manageAccounts(); break;
+                case MainAction::AddCodex: addCodexAccount(); break;
+                case MainAction::BestAccount: showBestAccount(); break;
+                case MainAction::Doctor: showDoctor(); break;
+                case MainAction::Exit: return 0;
             }
         } catch (const std::exception& exception) {
-            std::cout << "Error: " << exception.what() << '\n';
+            showMessage("Operation failed", {exception.what()}, true);
         }
-
-        std::cout << '\n';
     }
 }
 
-void TerminalApp::printHeader() const {
-    std::cout << "\n============================================================\n";
-    std::cout << " routerAI 0.3.0 - Terminal Account Router\n";
-    std::cout << "============================================================\n";
-}
+TerminalApp::MainAction TerminalApp::chooseMainAction() {
+    std::vector<std::string> entries = {
+        "Dashboard",
+        "Accounts",
+        "Add Codex account",
+        "Best account",
+        "Doctor",
+        "Exit",
+    };
+    int selected = 0;
+    MainAction action = MainAction::Exit;
 
-void TerminalApp::printMainMenu() const {
-    std::cout << "  1. Dashboard\n";
-    std::cout << "  2. Accounts\n";
-    std::cout << "  3. Add Codex account\n";
-    std::cout << "  4. Login account\n";
-    std::cout << "  5. Refresh account\n";
-    std::cout << "  6. View quota\n";
-    std::cout << "  7. Quota history\n";
-    std::cout << "  8. Select best account\n";
-    std::cout << "  9. Doctor / dependencies\n";
-    std::cout << "  0. Exit\n\n";
-}
-
-void TerminalApp::showDashboard() const {
-    const auto accounts = accounts_.listAccounts();
-
+    const auto accountSnapshot = accounts_.listAccounts();
     std::size_t ready = 0;
     std::size_t warning = 0;
     std::size_t unavailable = 0;
-    for (const auto& account : accounts) {
+    for (const auto& account : accountSnapshot) {
         if (!account.enabled || account.status == AccountStatus::Disabled) {
             ++unavailable;
         } else if (account.status == AccountStatus::Ready) {
@@ -86,342 +146,647 @@ void TerminalApp::showDashboard() const {
         }
     }
 
-    std::cout << "Dashboard\n";
-    std::cout << "--------\n";
-    std::cout << "Database    : " << database_.path() << '\n';
-    std::cout << "Accounts    : " << accounts.size() << '\n';
-    std::cout << "Ready       : " << ready << '\n';
-    std::cout << "Warning     : " << warning << '\n';
-    std::cout << "Unavailable : " << unavailable << '\n';
+    auto menu = Menu(&entries, &selected);
+    auto screen = ScreenInteractive::Fullscreen();
 
-    if (!accounts.empty()) {
-        std::cout << '\n';
-        printAccountTable(accounts);
-    }
+    auto renderer = Renderer(menu, [&] {
+        Element preview;
+        switch (selected) {
+            case 0:
+                preview = vbox({
+                    text("System overview") | bold,
+                    separator(),
+                    hbox({text("Accounts     "), text(std::to_string(accountSnapshot.size())) | bold}),
+                    hbox({text("Ready        "), text(std::to_string(ready)) | color(Color::Green) | bold}),
+                    hbox({text("Warning      "), text(std::to_string(warning)) | color(Color::Yellow) | bold}),
+                    hbox({text("Unavailable  "), text(std::to_string(unavailable)) | color(Color::Red) | bold}),
+                    text(""),
+                    text("Database: " + database_.path()) | dim,
+                });
+                break;
+            case 1:
+                preview = vbox({
+                    text("Account management") | bold,
+                    separator(),
+                    text("Choose an account, then select an action:"),
+                    text("  Details / Login / Refresh / Quota / History") | dim,
+                    text(""),
+                    text("No account IDs need to be typed manually.") | color(Color::Cyan),
+                });
+                break;
+            case 2:
+                preview = vbox({
+                    text("Add Codex account") | bold,
+                    separator(),
+                    text("Creates an isolated CODEX_HOME profile."),
+                    text("Authenticate with device-code or browser login."),
+                });
+                break;
+            case 3:
+                preview = vbox({
+                    text("Best account") | bold,
+                    separator(),
+                    text("Uses persisted health and quota data to select"),
+                    text("the best currently eligible Codex account."),
+                });
+                break;
+            case 4:
+                preview = vbox({
+                    text("Doctor") | bold,
+                    separator(),
+                    text("Checks local database and Codex CLI availability."),
+                });
+                break;
+            default:
+                preview = vbox({
+                    text("Exit routerAI") | bold,
+                    separator(),
+                    text("Close the terminal interface."),
+                });
+                break;
+        }
+
+        return vbox({
+            appHeader(),
+            separator(),
+            hbox({
+                vbox({
+                    text(" Navigation ") | bold,
+                    separator(),
+                    menu->Render() | frame | flex,
+                }) | border | size(WIDTH, EQUAL, 28),
+                preview | border | flex,
+            }) | flex,
+            separator(),
+            hbox({
+                keyHint("Up/Down", "navigate"),
+                text("   "),
+                keyHint("Enter", "select"),
+                text("   "),
+                keyHint("Esc / q", "exit"),
+            }),
+        }) | border;
+    });
+
+    auto component = CatchEvent(renderer, [&](Event event) {
+        if (event == Event::Return) {
+            action = static_cast<MainAction>(selected);
+            screen.ExitLoopClosure()();
+            return true;
+        }
+        if (event == Event::Escape || event == Event::Character("q")) {
+            action = MainAction::Exit;
+            screen.ExitLoopClosure()();
+            return true;
+        }
+        return false;
+    });
+
+    screen.Loop(component);
+    return action;
 }
 
-void TerminalApp::showAccounts() const {
-    printAccountTable(accounts_.listAccounts());
+void TerminalApp::showDashboard() {
+    auto snapshot = accounts_.listAccounts();
+    std::string notice;
+    auto screen = ScreenInteractive::Fullscreen();
+
+    auto renderer = Renderer([&] {
+        std::size_t ready = 0;
+        std::size_t warning = 0;
+        std::size_t unavailable = 0;
+        for (const auto& account : snapshot) {
+            if (!account.enabled || account.status == AccountStatus::Disabled) {
+                ++unavailable;
+            } else if (account.status == AccountStatus::Ready) {
+                ++ready;
+            } else if (account.status == AccountStatus::Warning) {
+                ++warning;
+            } else {
+                ++unavailable;
+            }
+        }
+
+        Elements accountRows;
+        const std::size_t visibleCount = std::min<std::size_t>(snapshot.size(), 12);
+        for (std::size_t i = 0; i < visibleCount; ++i) {
+            const auto& account = snapshot[i];
+            accountRows.push_back(hbox({
+                text(account.id) | size(WIDTH, EQUAL, 14),
+                text(account.planType.empty() ? "-" : account.planType) | size(WIDTH, EQUAL, 12),
+                statusBadge(account.status) | size(WIDTH, EQUAL, 18),
+                text(accountIdentity(account)) | flex,
+            }));
+        }
+        if (snapshot.size() > visibleCount) {
+            accountRows.push_back(
+                text("... " + std::to_string(snapshot.size() - visibleCount) + " more accounts") | dim);
+        }
+        if (snapshot.empty()) {
+            accountRows.push_back(text("No accounts configured yet.") | dim);
+        }
+
+        return vbox({
+            appHeader("Dashboard"),
+            separator(),
+            hbox({
+                vbox({
+                    text(" Accounts ") | bold,
+                    text(std::to_string(snapshot.size())) | bold | center,
+                }) | border | flex,
+                vbox({
+                    text(" Ready ") | bold,
+                    text(std::to_string(ready)) | bold | color(Color::Green) | center,
+                }) | border | flex,
+                vbox({
+                    text(" Warning ") | bold,
+                    text(std::to_string(warning)) | bold | color(Color::Yellow) | center,
+                }) | border | flex,
+                vbox({
+                    text(" Unavailable ") | bold,
+                    text(std::to_string(unavailable)) | bold | color(Color::Red) | center,
+                }) | border | flex,
+            }),
+            vbox({
+                hbox({
+                    text("ID") | bold | size(WIDTH, EQUAL, 14),
+                    text("PLAN") | bold | size(WIDTH, EQUAL, 12),
+                    text("STATUS") | bold | size(WIDTH, EQUAL, 18),
+                    text("ACCOUNT") | bold | flex,
+                }),
+                separator(),
+                vbox(std::move(accountRows)),
+            }) | border | flex,
+            notice.empty() ? text("") : text(notice) | color(Color::Cyan),
+            separator(),
+            hbox({
+                keyHint("r", "refresh accounts"),
+                text("   "),
+                keyHint("Enter / Esc / q", "back"),
+            }),
+        }) | border;
+    });
+
+    auto component = CatchEvent(renderer, [&](Event event) {
+        if (event == Event::Character("r")) {
+            try {
+                accounts_.refreshAllAccountStatuses();
+                snapshot = accounts_.listAccounts();
+                notice = "Accounts refreshed.";
+            } catch (const std::exception& exception) {
+                notice = "Refresh error: " + std::string(exception.what());
+            }
+            return true;
+        }
+        if (event == Event::Return || event == Event::Escape || event == Event::Character("q")) {
+            screen.ExitLoopClosure()();
+            return true;
+        }
+        return false;
+    });
+
+    screen.Loop(component);
+}
+
+void TerminalApp::manageAccounts() {
+    while (true) {
+        const auto account = chooseAccount("Accounts");
+        if (!account) {
+            return;
+        }
+
+        const int action = chooseOption(
+            account->id,
+            {"Details", "Login", "Refresh", "Quota", "Quota history", "Back"},
+            accountIdentity(*account));
+
+        switch (action) {
+            case 0: showAccountDetails(*account); break;
+            case 1: loginAccount(*account); break;
+            case 2: refreshAccount(*account); break;
+            case 3: showQuota(*account); break;
+            case 4: showQuotaHistory(*account); break;
+            default: break;
+        }
+    }
 }
 
 void TerminalApp::addCodexAccount() {
     const Account created = accounts_.addCodexAccount();
-    std::cout << "Account created.\n\n";
-    printAccountDetails(created);
+    const int choice = chooseOption(
+        "Codex account created",
+        {"Authenticate with device code", "Authenticate in browser", "Do this later"},
+        created.id);
 
-    std::cout << "\nAuthenticate now?\n";
-    std::cout << "  1. Device-code login\n";
-    std::cout << "  2. Browser callback login\n";
-    std::cout << "  0. Later\n";
-
-    const auto method = readChoice(0, 2);
-    if (!method || *method == 0) {
+    if (choice == 0) {
+        loginAccount(created);
+        return;
+    }
+    if (choice == 1) {
+        const auto outcome = accounts_.loginAccount(created.id, true);
+        auto lines = accountDetailLines(outcome.account);
+        if (!outcome.result.detail.empty()) {
+            lines.push_back("Auth: " + outcome.result.detail);
+        }
+        showMessage(
+            outcome.result.success ? "Authentication successful" : "Authentication failed",
+            lines,
+            !outcome.result.success);
         return;
     }
 
-    std::cout << "\nStarting Codex authentication...\n";
-    const auto outcome = accounts_.loginAccount(created.id, *method == 2);
-    std::cout << (outcome.result.success
-        ? "Authentication successful.\n"
-        : "Authentication failed.\n");
-    printAccountDetails(outcome.account);
-    if (!outcome.result.detail.empty()) {
-        std::cout << "Detail       : " << outcome.result.detail << '\n';
-    }
+    showAccountDetails(created);
 }
 
-void TerminalApp::loginAccount() {
-    const auto account = chooseAccount("Choose an account to authenticate");
-    if (!account) {
-        return;
-    }
-
-    std::cout << "\nLogin method\n";
-    std::cout << "  1. Device-code login\n";
-    std::cout << "  2. Browser callback login\n";
-    std::cout << "  0. Back\n";
-
-    const auto method = readChoice(0, 2);
-    if (!method || *method == 0) {
-        return;
-    }
-
-    std::cout << "\nStarting Codex authentication...\n";
-    const auto outcome = accounts_.loginAccount(account->id, *method == 2);
-    std::cout << (outcome.result.success
-        ? "Authentication successful.\n"
-        : "Authentication failed.\n");
-    printAccountDetails(outcome.account);
-    if (!outcome.result.detail.empty()) {
-        std::cout << "Detail       : " << outcome.result.detail << '\n';
-    }
-}
-
-void TerminalApp::refreshAccount() {
-    const auto account = chooseAccount("Choose an account to refresh");
-    if (!account) {
-        return;
-    }
-
-    const auto outcome = accounts_.refreshAccountStatus(account->id);
-    std::cout << "Account refreshed.\n\n";
-    printAccountDetails(outcome.account);
-    if (!outcome.auth.detail.empty()) {
-        std::cout << "Auth detail  : " << outcome.auth.detail << '\n';
-    }
-}
-
-void TerminalApp::showQuota() {
-    const auto account = chooseAccount("Choose an account to read quota");
-    if (!account) {
-        return;
-    }
-
-    const auto snapshot = accounts_.readQuota(account->id);
-    printQuota(*account, snapshot);
-}
-
-void TerminalApp::showQuotaHistory() {
-    const auto account = chooseAccount("Choose an account to view quota history");
-    if (!account) {
-        return;
-    }
-
-    const std::size_t limit = readHistoryLimit();
-    printQuotaHistory(accounts_.listQuotaHistory(account->id, limit));
-}
-
-void TerminalApp::showSelectedAccount() const {
+void TerminalApp::showBestAccount() {
     const auto selected = accounts_.selectAccount("codex");
     if (!selected) {
-        std::cout << "No eligible Codex account is currently available.\n";
+        showMessage(
+            "Best account",
+            {"No eligible Codex account is currently available."},
+            true);
         return;
     }
 
-    std::cout << "Best account selected from local health data\n";
-    std::cout << "--------------------------------------------\n";
-    printAccountDetails(selected->account);
-    if (selected->latestUsedPercent) {
-        std::cout << "Latest usage : " << std::fixed << std::setprecision(1)
-                  << *selected->latestUsedPercent << "%\n";
-    } else {
-        std::cout << "Latest usage : unknown\n";
-    }
+    auto lines = accountDetailLines(selected->account);
+    lines.push_back(
+        "Latest usage: " +
+        (selected->latestUsedPercent
+            ? percentText(*selected->latestUsedPercent)
+            : std::string("unknown")));
+    showMessage("Selected account", lines);
 }
 
-void TerminalApp::showDoctor() const {
+void TerminalApp::showDoctor() {
     CodexProvider codex;
     const bool installed = codex.cliInstalled();
 
-    std::cout << "Dependency check\n";
-    std::cout << "----------------\n";
-    std::cout << "Database  : OK (" << database_.path() << ")\n";
-    std::cout << "Codex CLI : " << (installed ? "OK" : "MISSING") << '\n';
+    std::vector<std::string> lines = {
+        "Database : OK (" + database_.path() + ")",
+        std::string("Codex CLI: ") + (installed ? "OK" : "MISSING"),
+    };
     if (installed) {
-        std::cout << "Version   : " << codex.cliVersion() << '\n';
+        lines.push_back("Version  : " + codex.cliVersion());
     } else {
-        std::cout << "Action    : install Codex CLI and ensure `codex` is on PATH\n";
+        lines.push_back("Install Codex CLI and ensure `codex` is available on PATH.");
     }
+
+    showMessage("Doctor", lines, !installed);
 }
 
-std::optional<Account> TerminalApp::chooseAccount(const std::string& title) const {
+void TerminalApp::showAccountDetails(const Account& account) {
+    showMessage("Account details", accountDetailLines(account));
+}
+
+void TerminalApp::loginAccount(const Account& account) {
+    const int method = chooseOption(
+        "Authenticate " + account.id,
+        {"Device-code login", "Browser callback login", "Back"},
+        accountIdentity(account));
+    if (method < 0 || method == 2) {
+        return;
+    }
+
+    const auto outcome = accounts_.loginAccount(account.id, method == 1);
+    auto lines = accountDetailLines(outcome.account);
+    if (!outcome.result.detail.empty()) {
+        lines.push_back("Auth: " + outcome.result.detail);
+    }
+    showMessage(
+        outcome.result.success ? "Authentication successful" : "Authentication failed",
+        lines,
+        !outcome.result.success);
+}
+
+void TerminalApp::refreshAccount(const Account& account) {
+    const auto outcome = accounts_.refreshAccountStatus(account.id);
+    auto lines = accountDetailLines(outcome.account);
+    if (!outcome.auth.detail.empty()) {
+        lines.push_back("Auth: " + outcome.auth.detail);
+    }
+    showMessage("Account refreshed", lines, !outcome.auth.authenticated);
+}
+
+void TerminalApp::showQuota(const Account& account) {
+    const QuotaSnapshot snapshot = accounts_.readQuota(account.id);
+    const Account current = accounts_.findAccount(account.id).value_or(account);
+    auto screen = ScreenInteractive::Fullscreen();
+
+    auto renderer = Renderer([&] {
+        Elements buckets;
+        for (const auto& bucket : snapshot.buckets) {
+            Elements windows;
+            for (const auto& window : bucket.windows) {
+                const double used = std::clamp(window.usedPercent, 0.0, 100.0);
+                windows.push_back(vbox({
+                    hbox({
+                        text(window.name.empty() ? "window" : window.name) |
+                            size(WIDTH, EQUAL, 14),
+                        gauge(static_cast<float>(used / 100.0)) |
+                            color(quotaColor(used)) |
+                            flex,
+                        text(" " + percentText(used)) | size(WIDTH, EQUAL, 9),
+                    }),
+                    text(
+                        "period " + formatDuration(window.windowDurationMinutes) +
+                        "   reset " + formatResetTime(window.resetsAtUnix)) | dim,
+                }));
+            }
+
+            const std::string bucketName = bucket.limitName.empty()
+                ? (bucket.limitId.empty() ? std::string("default") : bucket.limitId)
+                : bucket.limitName;
+            buckets.push_back(vbox({
+                hbox({
+                    text(bucketName) | bold,
+                    filler(),
+                    bucket.model.empty() ? text("") : text(bucket.model) | dim,
+                }),
+                separator(),
+                vbox(std::move(windows)),
+            }) | border);
+        }
+
+        if (buckets.empty()) {
+            buckets.push_back(text("No rate-limit buckets returned.") | dim | border);
+        }
+
+        Element usage = text(" UNKNOWN ") | bold | color(Color::Yellow);
+        if (snapshot.ordinaryUsageAllowed.has_value()) {
+            usage = text(*snapshot.ordinaryUsageAllowed ? " ALLOWED " : " BLOCKED ") |
+                bold |
+                color(*snapshot.ordinaryUsageAllowed ? Color::Green : Color::Red);
+        }
+
+        return vbox({
+            appHeader("Quota"),
+            separator(),
+            hbox({
+                vbox({
+                    text(current.id) | bold | color(Color::Cyan),
+                    text(accountIdentity(current)),
+                    text("Plan: " + (current.planType.empty() ? std::string("-") : current.planType)),
+                }) | border | flex,
+                vbox({
+                    text("Usage permission") | bold,
+                    usage | center,
+                }) | border | size(WIDTH, EQUAL, 24),
+            }),
+            vbox(std::move(buckets)) | frame | flex,
+            separator(),
+            keyHint("Enter / Esc / q", "back"),
+        }) | border;
+    });
+
+    auto component = CatchEvent(renderer, [&](Event event) {
+        if (event == Event::Return || event == Event::Escape || event == Event::Character("q")) {
+            screen.ExitLoopClosure()();
+            return true;
+        }
+        return false;
+    });
+    screen.Loop(component);
+}
+
+void TerminalApp::showQuotaHistory(const Account& account) {
+    const int option = chooseOption(
+        "Quota history",
+        {"Last 20 rows", "Last 50 rows", "Last 100 rows", "Last 200 rows", "Back"},
+        account.id);
+    if (option < 0 || option == 4) {
+        return;
+    }
+
+    constexpr std::size_t limits[] = {20, 50, 100, 200};
+    const auto history = accounts_.listQuotaHistory(account.id, limits[option]);
+    if (history.empty()) {
+        showMessage("Quota history", {"No quota history recorded for " + account.id + "."});
+        return;
+    }
+
+    std::vector<std::string> rows;
+    rows.reserve(history.size());
+    for (const auto& entry : history) {
+        std::ostringstream row;
+        row << entry.capturedAt
+            << "  |  " << (entry.limitId.empty() ? "default" : entry.limitId)
+            << '/' << (entry.windowName.empty() ? "-" : entry.windowName)
+            << "  |  " << std::fixed << std::setprecision(1) << entry.usedPercent << "%"
+            << "  |  reset " << formatResetTime(entry.resetsAtUnix);
+        rows.push_back(row.str());
+    }
+
+    showScrollableRows("Quota history - " + account.id, rows, "Up/Down scroll through snapshots");
+}
+
+std::optional<Account> TerminalApp::chooseAccount(const std::string& title) {
     const auto accounts = accounts_.listAccounts();
     if (accounts.empty()) {
-        std::cout << "No accounts configured.\n";
+        showMessage(title, {"No accounts configured."});
         return std::nullopt;
     }
 
-    std::cout << title << '\n';
-    std::cout << std::string(title.size(), '-') << '\n';
-    for (std::size_t index = 0; index < accounts.size(); ++index) {
-        const auto& account = accounts[index];
-        const std::string identity = account.email.empty()
-            ? account.displayName
-            : account.email;
-        std::cout << "  " << (index + 1) << ". "
-                  << account.id << " | "
-                  << toString(account.status) << " | "
-                  << (account.planType.empty() ? "-" : account.planType) << " | "
-                  << identity << '\n';
-    }
-    std::cout << "  0. Back\n";
-
-    const auto choice = readChoice(0, static_cast<int>(accounts.size()));
-    if (!choice || *choice == 0) {
-        return std::nullopt;
-    }
-    return accounts[static_cast<std::size_t>(*choice - 1)];
-}
-
-std::optional<int> TerminalApp::readChoice(int minimum, int maximum) const {
-    while (true) {
-        std::cout << "Select [" << minimum << '-' << maximum << "]: ";
-        std::string input;
-        if (!std::getline(std::cin, input)) {
-            return std::nullopt;
-        }
-
-        try {
-            std::size_t consumed = 0;
-            const int value = std::stoi(input, &consumed);
-            if (consumed == input.size() && value >= minimum && value <= maximum) {
-                return value;
-            }
-        } catch (...) {
-        }
-
-        std::cout << "Invalid selection. Try again.\n";
-    }
-}
-
-std::size_t TerminalApp::readHistoryLimit() const {
-    while (true) {
-        std::cout << "History rows [50]: ";
-        std::string input;
-        if (!std::getline(std::cin, input) || input.empty()) {
-            return 50;
-        }
-
-        try {
-            std::size_t consumed = 0;
-            const unsigned long value = std::stoul(input, &consumed);
-            if (consumed == input.size() && value >= 1 && value <= 500) {
-                return static_cast<std::size_t>(value);
-            }
-        } catch (...) {
-        }
-
-        std::cout << "Enter a number from 1 to 500, or press Enter for 50.\n";
-    }
-}
-
-void TerminalApp::printAccountTable(const std::vector<Account>& accounts) {
-    if (accounts.empty()) {
-        std::cout << "No accounts configured.\n";
-        return;
-    }
-
-    std::cout << std::left
-              << std::setw(14) << "ID"
-              << std::setw(12) << "PROVIDER"
-              << std::setw(12) << "PLAN"
-              << std::setw(18) << "STATUS"
-              << std::setw(10) << "PRIORITY"
-              << "ACCOUNT\n";
-    std::cout << std::string(96, '-') << '\n';
-
+    std::vector<std::string> entries;
+    entries.reserve(accounts.size());
     for (const auto& account : accounts) {
-        const std::string identity = account.email.empty()
-            ? account.displayName
-            : account.email;
-        std::cout << std::left
-                  << std::setw(14) << account.id
-                  << std::setw(12) << account.provider
-                  << std::setw(12) << (account.planType.empty() ? "-" : account.planType)
-                  << std::setw(18) << toString(account.status)
-                  << std::setw(10) << account.priority
-                  << identity << '\n';
+        entries.push_back(
+            account.id + "  |  " +
+            (account.planType.empty() ? std::string("-") : account.planType) + "  |  " +
+            accountIdentity(account));
     }
+
+    int selected = 0;
+    bool accepted = false;
+    auto menu = Menu(&entries, &selected);
+    auto screen = ScreenInteractive::Fullscreen();
+
+    auto renderer = Renderer(menu, [&] {
+        return vbox({
+            appHeader(title),
+            separator(),
+            hbox({
+                vbox({
+                    text(" Accounts ") | bold,
+                    separator(),
+                    menu->Render() | frame | flex,
+                }) | border | size(WIDTH, EQUAL, 52),
+                accountCard(accounts[static_cast<std::size_t>(selected)]),
+            }) | flex,
+            separator(),
+            hbox({
+                keyHint("Up/Down", "choose account"),
+                text("   "),
+                keyHint("Enter", "open"),
+                text("   "),
+                keyHint("Esc / q", "back"),
+            }),
+        }) | border;
+    });
+
+    auto component = CatchEvent(renderer, [&](Event event) {
+        if (event == Event::Return) {
+            accepted = true;
+            screen.ExitLoopClosure()();
+            return true;
+        }
+        if (event == Event::Escape || event == Event::Character("q")) {
+            screen.ExitLoopClosure()();
+            return true;
+        }
+        return false;
+    });
+
+    screen.Loop(component);
+    if (!accepted) {
+        return std::nullopt;
+    }
+    return accounts[static_cast<std::size_t>(selected)];
 }
 
-void TerminalApp::printAccountDetails(const Account& account) {
-    std::cout << "ID           : " << account.id << '\n';
-    std::cout << "Provider     : " << account.provider << '\n';
-    if (!account.email.empty()) {
-        std::cout << "Email        : " << account.email << '\n';
+int TerminalApp::chooseOption(
+    const std::string& title,
+    const std::vector<std::string>& options,
+    const std::string& subtitle) {
+    if (options.empty()) {
+        return -1;
     }
-    if (!account.planType.empty()) {
-        std::cout << "Plan         : " << account.planType << '\n';
-    }
-    std::cout << "Status       : " << toString(account.status) << '\n';
-    std::cout << "Priority     : " << account.priority << '\n';
-    std::cout << "Runtime home : " << account.runtimeHome << '\n';
+
+    int selected = 0;
+    int result = -1;
+    auto entries = options;
+    auto menu = Menu(&entries, &selected);
+    auto screen = ScreenInteractive::Fullscreen();
+
+    auto renderer = Renderer(menu, [&] {
+        return vbox({
+            appHeader(title),
+            subtitle.empty() ? text("") : text(subtitle) | dim,
+            separator(),
+            menu->Render() | frame | border | flex,
+            separator(),
+            hbox({
+                keyHint("Up/Down", "navigate"),
+                text("   "),
+                keyHint("Enter", "select"),
+                text("   "),
+                keyHint("Esc / q", "back"),
+            }),
+        }) | border;
+    });
+
+    auto component = CatchEvent(renderer, [&](Event event) {
+        if (event == Event::Return) {
+            result = selected;
+            screen.ExitLoopClosure()();
+            return true;
+        }
+        if (event == Event::Escape || event == Event::Character("q")) {
+            result = -1;
+            screen.ExitLoopClosure()();
+            return true;
+        }
+        return false;
+    });
+
+    screen.Loop(component);
+    return result;
 }
 
-void TerminalApp::printQuota(const Account& account, const QuotaSnapshot& snapshot) {
-    std::cout << "Account      : " << account.id << '\n';
-    std::cout << "Provider     : " << account.provider << '\n';
-    if (!account.email.empty()) {
-        std::cout << "Email        : " << account.email << '\n';
-    }
-    if (!account.planType.empty()) {
-        std::cout << "Plan         : " << account.planType << '\n';
-    }
-    if (!snapshot.accountId.empty()) {
-        std::cout << "Provider ID  : " << snapshot.accountId << '\n';
-    }
+void TerminalApp::showMessage(
+    const std::string& title,
+    const std::vector<std::string>& lines,
+    bool isError) {
+    auto screen = ScreenInteractive::Fullscreen();
+    auto renderer = Renderer([&] {
+        Elements content;
+        for (const auto& line : lines) {
+            content.push_back(paragraph(line));
+        }
+        if (content.empty()) {
+            content.push_back(text("-"));
+        }
 
-    std::cout << "Usage        : ";
-    if (!snapshot.ordinaryUsageAllowed.has_value()) {
-        std::cout << "UNKNOWN\n";
-    } else {
-        std::cout << (*snapshot.ordinaryUsageAllowed ? "ALLOWED" : "BLOCKED") << '\n';
-    }
+        Element titleElement = text(title) | bold;
+        titleElement = titleElement | color(isError ? Color::Red : Color::Cyan);
 
-    if (snapshot.buckets.empty()) {
-        std::cout << "Quota        : no rate-limit buckets returned\n";
+        return vbox({
+            appHeader(),
+            separator(),
+            vbox({
+                titleElement,
+                separator(),
+                vbox(std::move(content)),
+            }) | border | flex,
+            separator(),
+            keyHint("Enter / Esc / q", "back"),
+        }) | border;
+    });
+
+    auto component = CatchEvent(renderer, [&](Event event) {
+        if (event == Event::Return || event == Event::Escape || event == Event::Character("q")) {
+            screen.ExitLoopClosure()();
+            return true;
+        }
+        return false;
+    });
+    screen.Loop(component);
+}
+
+void TerminalApp::showScrollableRows(
+    const std::string& title,
+    const std::vector<std::string>& rows,
+    const std::string& subtitle) {
+    if (rows.empty()) {
+        showMessage(title, {"No data."});
         return;
     }
 
-    for (const auto& bucket : snapshot.buckets) {
-        std::cout << '\n';
-        std::cout << "Bucket       : "
-                  << (bucket.limitId.empty() ? "default" : bucket.limitId) << '\n';
-        if (!bucket.limitName.empty()) {
-            std::cout << "Name         : " << bucket.limitName << '\n';
-        }
-        if (!bucket.model.empty()) {
-            std::cout << "Model        : " << bucket.model << '\n';
-        }
-        if (!bucket.planType.empty()) {
-            std::cout << "Plan         : " << bucket.planType << '\n';
-        }
-        if (!bucket.reachedType.empty()) {
-            std::cout << "Reached      : " << bucket.reachedType << '\n';
-        }
+    int selected = 0;
+    auto entries = rows;
+    auto menu = Menu(&entries, &selected);
+    auto screen = ScreenInteractive::Fullscreen();
 
-        for (const auto& window : bucket.windows) {
-            const double remaining = std::clamp(100.0 - window.usedPercent, 0.0, 100.0);
-            std::cout << "  " << std::left << std::setw(10) << window.name
-                      << "used " << std::fixed << std::setprecision(1)
-                      << window.usedPercent << "%"
-                      << " | remaining " << remaining << "%"
-                      << " | window " << formatDuration(window.windowDurationMinutes)
-                      << " | reset " << formatResetTime(window.resetsAtUnix)
-                      << '\n';
+    auto renderer = Renderer(menu, [&] {
+        return vbox({
+            appHeader(title),
+            subtitle.empty() ? text("") : text(subtitle) | dim,
+            separator(),
+            menu->Render() | frame | border | flex,
+            separator(),
+            keyHint("Up/Down", "scroll   Enter / Esc / q back"),
+        }) | border;
+    });
+
+    auto component = CatchEvent(renderer, [&](Event event) {
+        if (event == Event::Return || event == Event::Escape || event == Event::Character("q")) {
+            screen.ExitLoopClosure()();
+            return true;
         }
-    }
+        return false;
+    });
+    screen.Loop(component);
 }
 
-void TerminalApp::printQuotaHistory(const std::vector<QuotaHistoryEntry>& entries) {
-    if (entries.empty()) {
-        std::cout << "No quota history recorded.\n";
-        return;
-    }
+std::vector<std::string> TerminalApp::accountDetailLines(const Account& account) {
+    return {
+        "ID       : " + account.id,
+        "Provider : " + account.provider,
+        "Account  : " + accountIdentity(account),
+        "Plan     : " + (account.planType.empty() ? std::string("-") : account.planType),
+        "Status   : " + toString(account.status),
+        "Priority : " + std::to_string(account.priority),
+        "Runtime  : " + account.runtimeHome,
+    };
+}
 
-    std::cout << std::left
-              << std::setw(21) << "CAPTURED"
-              << std::setw(10) << "SNAPSHOT"
-              << std::setw(16) << "BUCKET"
-              << std::setw(12) << "WINDOW"
-              << std::setw(10) << "USED"
-              << std::setw(10) << "PERIOD"
-              << "RESET\n";
-    std::cout << std::string(100, '-') << '\n';
-
-    for (const auto& entry : entries) {
-        std::ostringstream used;
-        used << std::fixed << std::setprecision(1) << entry.usedPercent << '%';
-        std::cout << std::left
-                  << std::setw(21) << entry.capturedAt
-                  << std::setw(10) << entry.snapshotId
-                  << std::setw(16) << (entry.limitId.empty() ? "default" : entry.limitId)
-                  << std::setw(12) << (entry.windowName.empty() ? "-" : entry.windowName)
-                  << std::setw(10) << used.str()
-                  << std::setw(10) << formatDuration(entry.windowDurationMinutes)
-                  << formatResetTime(entry.resetsAtUnix)
-                  << '\n';
+std::string TerminalApp::accountIdentity(const Account& account) {
+    if (!account.email.empty()) {
+        return account.email;
     }
+    if (!account.displayName.empty()) {
+        return account.displayName;
+    }
+    return "-";
 }
 
 std::string TerminalApp::formatDuration(const std::optional<std::int64_t>& minutes) {
