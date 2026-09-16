@@ -16,6 +16,7 @@ find_package(nlohmann_json CONFIG REQUIRED)
 add_executable(router
     src/main.cpp
     src/api/LocalApiServer.cpp
+    src/api/OpenAICompat.cpp
     src/core/AccountManager.cpp
     src/core/AccountSelector.cpp
     src/core/CompletionRouter.cpp
@@ -89,17 +90,29 @@ if(BUILD_TESTING)
         unofficial::sqlite3::sqlite3
     )
 
+    add_executable(router_openai_compat_tests
+        tests/OpenAICompatTests.cpp
+        src/api/OpenAICompat.cpp
+    )
+    target_include_directories(router_openai_compat_tests PRIVATE src)
+    target_link_libraries(router_openai_compat_tests PRIVATE
+        nlohmann_json::nlohmann_json
+    )
+
     if(MSVC)
         target_compile_options(router_storage_tests PRIVATE /W4 /permissive-)
         target_compile_options(router_selector_tests PRIVATE /W4 /permissive-)
         target_compile_options(router_routing_tests PRIVATE /W4 /permissive-)
+        target_compile_options(router_openai_compat_tests PRIVATE /W4 /permissive-)
     else()
         target_compile_options(router_storage_tests PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(router_selector_tests PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(router_routing_tests PRIVATE -Wall -Wextra -Wpedantic)
+        target_compile_options(router_openai_compat_tests PRIVATE -Wall -Wextra -Wpedantic)
     endif()
 
     add_test(NAME sqlite_storage COMMAND router_storage_tests)
     add_test(NAME account_selector COMMAND router_selector_tests)
     add_test(NAME routing_manager COMMAND router_routing_tests)
+    add_test(NAME openai_compat COMMAND router_openai_compat_tests)
 endif()
