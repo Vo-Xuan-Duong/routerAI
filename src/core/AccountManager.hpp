@@ -27,6 +27,7 @@ public:
     explicit AccountManager(SQLiteDatabase& database);
 
     Account addCodexAccount();
+    Account addZaiAccount();
     AccountLoginOutcome loginAccount(const std::string& accountId, bool useBrowser);
     AccountAuthOutcome refreshAccountStatus(const std::string& accountId);
     void refreshAllAccountStatuses();
