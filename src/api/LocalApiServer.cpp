@@ -77,8 +77,23 @@ std::string LocalApiServer::baseUrl() const {
     return "http://" + host_ + ':' + std::to_string(port_) + "/v1";
 }
 
+std::string LocalApiServer::apiKey() const {
+    std::lock_guard<std::mutex> lock(apiKeyMutex_);
+    return apiKey_;
+}
+
+std::string LocalApiServer::rotateApiKey() {
+    const std::string replacement = generateApiKey();
+    credentials_.put(localApiCredentialRef, replacement);
+    {
+        std::lock_guard<std::mutex> lock(apiKeyMutex_);
+        apiKey_ = replacement;
+    }
+    return replacement;
+}
+
 bool LocalApiServer::authorized(const httplib::Request& request) const {
-    const std::string expected = "Bearer " + apiKey_;
+    const std::string expected = "Bearer " + apiKey();
     return request.get_header_value("Authorization") == expected;
 }
 
