@@ -4,12 +4,12 @@
 
 #include <algorithm>
 #include <cctype>
-#include <cmath>
 #include <ctime>
 #include <regex>
 #include <sstream>
 #include <stdexcept>
 #include <unordered_set>
+#include <utility>
 
 namespace routerai {
 
@@ -48,13 +48,10 @@ std::string labelFromLine(
         prefix = trimCopy(prefix);
     }
 
-    const auto lower = [&] {
-        std::string value = prefix;
-        std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
-            return static_cast<char>(std::tolower(ch));
-        });
-        return value;
-    }();
+    std::string lower = prefix;
+    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
 
     if (prefix.empty() || lower == "remaining" || lower.ends_with("remaining")) {
         return previous;
@@ -72,6 +69,16 @@ bool AntigravityCli::isInstalled() const {
 std::string AntigravityCli::version() const {
     const auto result = ProcessRunner::runCapture("agy --version");
     return result.exitCode == 0 ? trim(result.output) : std::string{};
+}
+
+int AntigravityCli::install() const {
+#ifdef _WIN32
+    return ProcessRunner::runInteractive(
+        "powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm https://antigravity.google/cli/install.ps1 | iex\"");
+#else
+    return ProcessRunner::runInteractive(
+        "curl -fsSL https://antigravity.google/cli/install.sh | bash");
+#endif
 }
 
 int AntigravityCli::login() const {
@@ -100,10 +107,10 @@ QuotaSnapshot AntigravityCli::readQuota() const {
         throw std::runtime_error("Antigravity CLI (`agy`) is not installed");
     }
 
-    // Text output is intentionally preferred here. agy has supported a stable
-    // tabular /usage print-mode surface since 1.1.12, while some releases have
-    // had malformed raw-newline JSON output. This parser accepts both the
-    // human-readable 'N% remaining' form and tab-separated records.
+    // Text output is intentionally preferred here. agy has supported a
+    // read-only /usage print-mode surface since 1.1.12, while some releases
+    // have emitted malformed raw-newline JSON. The parser accepts the visible
+    // 'N% remaining' representation as well as tab-separated records.
     const auto result = ProcessRunner::runCapture("agy -p \"/usage\"");
     if (result.exitCode != 0) {
         throw std::runtime_error(
@@ -125,7 +132,6 @@ QuotaSnapshot AntigravityCli::readQuota() const {
 
     const std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
     bool anyAllowed = false;
-    bool anyBlocked = false;
 
     while (std::getline(input, line)) {
         line = trimCopy(line);
@@ -165,6 +171,9 @@ QuotaSnapshot AntigravityCli::readQuota() const {
         bucket.limitName = label;
         bucket.model = label;
         bucket.planType = "antigravity";
+        if (remaining <= 0.0) {
+            bucket.reachedType = "quota_exhausted";
+        }
 
         QuotaWindow window;
         window.name = "quota";
@@ -181,7 +190,6 @@ QuotaSnapshot AntigravityCli::readQuota() const {
         bucket.windows.push_back(std::move(window));
         snapshot.buckets.push_back(std::move(bucket));
         anyAllowed = anyAllowed || remaining > 0.0;
-        anyBlocked = anyBlocked || remaining <= 0.0;
         previous = line;
     }
 
@@ -190,7 +198,7 @@ QuotaSnapshot AntigravityCli::readQuota() const {
             "Antigravity /usage returned data, but routerAI could not parse a quota percentage");
     }
 
-    snapshot.ordinaryUsageAllowed = anyAllowed && !anyBlocked;
+    snapshot.ordinaryUsageAllowed = anyAllowed;
     return snapshot;
 }
 
