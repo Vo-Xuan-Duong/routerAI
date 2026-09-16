@@ -148,16 +148,6 @@ std::string providerModel(
     return request.value("model", std::string{});
 }
 
-nlohmann::json providerRequest(nlohmann::json request, const std::string& provider) {
-    request.erase("router");
-    const std::string model = providerModel(request, provider);
-    if (!model.empty()) {
-        request["model"] = model;
-    }
-    request["stream"] = false;
-    return request;
-}
-
 }  // namespace
 
 CompletionRouter::CompletionRouter(
@@ -178,9 +168,6 @@ CompletionRouteResult CompletionRouter::chatCompletions(
 
     if (!request.is_object()) {
         return jsonError(400, "Request body must be a JSON object");
-    }
-    if (request.value("stream", false)) {
-        return jsonError(400, "Streaming is not implemented yet; set stream=false");
     }
 
     const auto group = routing_.findGroup(groupId);
@@ -235,6 +222,9 @@ CompletionRouteResult CompletionRouter::chatCompletions(
                 if (!selectedModel.empty()) {
                     outgoing["model"] = selectedModel;
                 }
+                // The initial router transport buffers provider responses even
+                // when the client asks for SSE. LocalApiServer converts the
+                // completed response into an OpenAI-compatible event stream.
                 outgoing["stream"] = false;
 
                 const HttpResponse response = ZaiClient::chatCompletions(
