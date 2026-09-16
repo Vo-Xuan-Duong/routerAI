@@ -89,7 +89,7 @@ void CodexAppServerClient::initialize() {
          {
              {"name", "routerAI"},
              {"title", "routerAI"},
-             {"version", "0.4.0"},
+             {"version", "0.6.0"},
          }},
         {"capabilities", {{"experimentalApi", false}}},
     };
@@ -125,25 +125,28 @@ void CodexAppServerClient::notify(
     process_.writeLine(message.dump());
 }
 
-nlohmann::json CodexAppServerClient::readResponse(std::int64_t requestId) {
+nlohmann::json CodexAppServerClient::readMessage() {
     while (true) {
         const auto line = process_.readLine();
         if (!line) {
-            throw std::runtime_error(
-                "Codex app-server closed before responding to request " +
-                std::to_string(requestId));
+            throw std::runtime_error("Codex app-server closed unexpectedly");
         }
         if (line->empty()) {
             continue;
         }
 
-        nlohmann::json message;
         try {
-            message = nlohmann::json::parse(*line);
+            return nlohmann::json::parse(*line);
         } catch (const nlohmann::json::parse_error& error) {
             throw std::runtime_error(
                 "Invalid JSON from Codex app-server: " + std::string(error.what()));
         }
+    }
+}
+
+nlohmann::json CodexAppServerClient::readResponse(std::int64_t requestId) {
+    while (true) {
+        const nlohmann::json message = readMessage();
 
         if (!message.contains("id") || message.at("id").is_null()) {
             continue;
@@ -176,6 +179,110 @@ AccountProfile CodexAppServerClient::readAccountProfile() {
 
 QuotaSnapshot CodexAppServerClient::readRateLimits() {
     return parseQuotaSnapshot(request("account/rateLimits/read"));
+}
+
+CodexCompletionResult CodexAppServerClient::runPrompt(
+    const std::string& prompt,
+    const std::string& model,
+    const std::string& baseInstructions,
+    const std::string& developerInstructions) {
+    if (prompt.empty()) {
+        throw std::runtime_error("Codex prompt cannot be empty");
+    }
+
+    nlohmann::json threadParams = {
+        {"approvalPolicy", "never"},
+        {"sandbox", "read-only"},
+        {"ephemeral", true},
+    };
+    if (!model.empty()) {
+        threadParams["model"] = model;
+    }
+    if (!baseInstructions.empty()) {
+        threadParams["baseInstructions"] = baseInstructions;
+    }
+    if (!developerInstructions.empty()) {
+        threadParams["developerInstructions"] = developerInstructions;
+    }
+
+    const nlohmann::json threadResult = request("thread/start", threadParams);
+    if (!threadResult.contains("thread") || !threadResult.at("thread").is_object()) {
+        throw std::runtime_error("Codex thread/start response has no thread");
+    }
+
+    CodexCompletionResult result;
+    result.threadId = optionalString(threadResult.at("thread"), "id");
+    result.model = optionalString(threadResult, "model");
+    if (result.threadId.empty()) {
+        throw std::runtime_error("Codex thread/start response has no thread id");
+    }
+
+    nlohmann::json turnParams = {
+        {"threadId", result.threadId},
+        {"input",
+         nlohmann::json::array({
+             {
+                 {"type", "text"},
+                 {"text", prompt},
+                 {"text_elements", nlohmann::json::array()},
+             },
+         })},
+        {"approvalPolicy", "never"},
+    };
+    if (!model.empty()) {
+        turnParams["model"] = model;
+    }
+
+    const nlohmann::json turnResult = request("turn/start", turnParams);
+    if (!turnResult.contains("turn") || !turnResult.at("turn").is_object()) {
+        throw std::runtime_error("Codex turn/start response has no turn");
+    }
+    result.turnId = optionalString(turnResult.at("turn"), "id");
+    if (result.turnId.empty()) {
+        throw std::runtime_error("Codex turn/start response has no turn id");
+    }
+
+    while (true) {
+        const nlohmann::json message = readMessage();
+        if (!message.contains("method") || !message.at("method").is_string()) {
+            continue;
+        }
+
+        const std::string method = message.at("method").get<std::string>();
+        const auto paramsIt = message.find("params");
+        if (paramsIt == message.end() || !paramsIt->is_object()) {
+            continue;
+        }
+        const nlohmann::json& params = *paramsIt;
+
+        if (method == "item/agentMessage/delta") {
+            if (optionalString(params, "turnId") == result.turnId) {
+                result.text += optionalString(params, "delta");
+            }
+            continue;
+        }
+
+        if (method == "turn/completed") {
+            if (!params.contains("turn") || !params.at("turn").is_object()) {
+                continue;
+            }
+            const auto& turn = params.at("turn");
+            if (optionalString(turn, "id") != result.turnId) {
+                continue;
+            }
+
+            const std::string status = optionalString(turn, "status");
+            if (status != "completed") {
+                const auto errorIt = turn.find("error");
+                const std::string detail =
+                    errorIt != turn.end() && !errorIt->is_null()
+                        ? errorIt->dump()
+                        : status;
+                throw std::runtime_error("Codex turn did not complete: " + detail);
+            }
+            return result;
+        }
+    }
 }
 
 AccountProfile CodexAppServerClient::parseAccountProfile(const nlohmann::json& result) {
