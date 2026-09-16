@@ -307,7 +307,14 @@ std::optional<RoutingDecision> RoutingManager::select(
             candidates.begin(),
             candidates.end(),
             [&](const RoutingCandidate& candidate) {
-                return excluded(candidate.account.id, excludedAccountIds);
+                if (excluded(candidate.account.id, excludedAccountIds)) {
+                    return true;
+                }
+                // Enforce the capability boundary again at selection time so
+                // legacy or externally modified SQLite rows cannot put a
+                // consumer subscription into automatic cycling.
+                return group->strategy != RoutingStrategy::Manual &&
+                       !automaticRoutingCapable(candidate.account);
             }),
         candidates.end());
 
