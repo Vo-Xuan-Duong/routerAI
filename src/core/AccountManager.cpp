@@ -75,6 +75,21 @@ void AccountManager::refreshAllAccountStatuses() {
     }
 }
 
+QuotaSnapshot AccountManager::readQuota(const std::string& accountId) const {
+    const auto account = database_.findAccount(accountId);
+    if (!account) {
+        throw std::runtime_error("Account not found: " + accountId);
+    }
+
+    if (account->provider != "codex") {
+        throw std::runtime_error(
+            "Quota reads are not implemented for provider: " + account->provider);
+    }
+
+    CodexProvider provider;
+    return provider.readQuota(*account);
+}
+
 std::optional<Account> AccountManager::findAccount(const std::string& accountId) const {
     return database_.findAccount(accountId);
 }
