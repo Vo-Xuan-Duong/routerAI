@@ -2,37 +2,60 @@
 
 Console-first AI account router written in C++20.
 
-The first milestone focuses on a small, testable core before adding OAuth, quota tracking, routing, and an OpenAI-compatible proxy.
+The project manages AI provider accounts as isolated local runtime profiles. The current Codex integration deliberately delegates ChatGPT authentication and token refresh to the official Codex CLI instead of storing OAuth tokens inside routerAI.
 
 ## Current scope
 
 - C++20 + CMake
-- CLI commands
-  - `router status`
-  - `router account list`
-  - `router account add codex`
-- SQLite account persistence
+- SQLite account persistence and schema migration
 - Provider abstraction
-- Codex provider stub (OAuth is the next milestone)
+- One isolated `CODEX_HOME` per Codex account
+- Official Codex CLI authentication
+- CLI commands:
+  - `router status`
+  - `router doctor`
+  - `router account list [--refresh]`
+  - `router account add codex [--login] [--browser]`
+  - `router account login <account-id> [--browser]`
+  - `router account status <account-id>`
 
-## Planned milestones
+## Architecture
 
-1. Console skeleton + SQLite persistence
-2. Codex OAuth login and credential storage
-3. Account health and quota tracking
-4. Single-account request path
-5. Multi-account routing, cooldown, and failover
-6. OpenAI-compatible local API
-7. Additional providers
-8. Web/desktop management UI
+```text
+router CLI
+    |
+    v
+AccountManager
+    |
+    +-- SQLite account metadata
+    |
+    +-- Provider abstraction
+            |
+            +-- CodexProvider
+                    |
+                    +-- CodexCli
+                            |
+                            +-- CODEX_HOME=.routerai/accounts/<id>/codex-home
+                            +-- codex login
+                            +-- codex login status
+```
 
-## Build with vcpkg
+routerAI stores only account metadata and the runtime-home path. ChatGPT OAuth credentials remain inside the Codex-managed credential store for that isolated `CODEX_HOME`.
 
-Requirements:
+## Requirements
 
 - CMake 3.24+
 - C++20 compiler
 - vcpkg
+- OpenAI Codex CLI available as `codex` on `PATH`
+
+Run the dependency check after building:
+
+```bash
+router doctor
+```
+
+## Build with vcpkg
 
 ```bash
 git clone https://github.com/Vo-Xuan-Duong/routerAI.git
@@ -48,14 +71,66 @@ On Windows/Visual Studio, the executable is typically under `build/Release/route
 
 ## Usage
 
+Create an isolated Codex account profile:
+
 ```bash
-router status
-router account list
 router account add codex
 ```
 
-`account add codex` currently creates a local placeholder account. OAuth authentication will replace this stub in the next milestone.
+Then authenticate it using the console-oriented device-code flow:
+
+```bash
+router account login codex-01
+```
+
+Or use Codex's browser callback login:
+
+```bash
+router account login codex-01 --browser
+```
+
+You can create and authenticate in one step:
+
+```bash
+router account add codex --login
+```
+
+Check the account:
+
+```bash
+router account status codex-01
+```
+
+Refresh all known account auth states before listing:
+
+```bash
+router account list --refresh
+```
+
+Each Codex account gets its own runtime directory:
+
+```text
+.routerai/
+└── accounts/
+    ├── codex-01/
+    │   └── codex-home/
+    └── codex-02/
+        └── codex-home/
+```
+
+This isolation is the basis for multi-account routing later: each worker can run Codex with the matching `CODEX_HOME` without routerAI copying credentials between accounts.
 
 ## Data
 
-The router stores local state in `router.db` by default. Runtime database files are ignored by Git.
+Account metadata is stored in `router.db` by default. Provider runtime state is stored below `.routerai/`. Both are local runtime data and should not be committed.
+
+## Roadmap
+
+1. Console skeleton + SQLite persistence - done
+2. Codex account isolation and official CLI authentication - current
+3. Account metadata discovery, health and quota tracking
+4. Codex app-server integration for requests
+5. Multi-account routing, cooldown and failover
+6. OpenAI-compatible local API
+7. Additional providers
+8. Web/desktop management UI
