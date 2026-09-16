@@ -1,6 +1,7 @@
 #include "ui/TerminalApp.hpp"
 
 #include "providers/codex/CodexProvider.hpp"
+#include "providers/zai/ZaiProvider.hpp"
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/event.hpp>
@@ -47,12 +48,12 @@ Element keyHint(const std::string& keys, const std::string& action) {
 Element appHeader(const std::string& subtitle = {}) {
     Elements items;
     items.push_back(text(" routerAI ") | bold | color(Color::Cyan));
-    items.push_back(text("0.4.0") | dim);
+    items.push_back(text("0.5.0") | dim);
     if (!subtitle.empty()) {
         items.push_back(text("  /  " + subtitle) | dim);
     }
     items.push_back(filler());
-    items.push_back(text("Terminal Account Router ") | dim);
+    items.push_back(text("Multi-provider Account Router ") | dim);
     return hbox(std::move(items));
 }
 
@@ -107,7 +108,7 @@ int TerminalApp::run() {
             switch (action) {
                 case MainAction::Dashboard: showDashboard(); break;
                 case MainAction::Accounts: manageAccounts(); break;
-                case MainAction::AddCodex: addCodexAccount(); break;
+                case MainAction::AddProvider: addProvider(); break;
                 case MainAction::BestAccount: showBestAccount(); break;
                 case MainAction::Doctor: showDoctor(); break;
                 case MainAction::Exit: return 0;
@@ -122,7 +123,7 @@ TerminalApp::MainAction TerminalApp::chooseMainAction() {
     std::vector<std::string> entries = {
         "Dashboard",
         "Accounts",
-        "Add Codex account",
+        "Add Provider",
         "Best account",
         "Doctor",
         "Exit",
@@ -168,33 +169,35 @@ TerminalApp::MainAction TerminalApp::chooseMainAction() {
                 preview = vbox({
                     text("Account management") | bold,
                     separator(),
-                    text("Choose an account, then select an action:"),
-                    text("  Details / Login / Refresh / Quota / History") | dim,
-                    text(""),
-                    text("No account IDs need to be typed manually.") | color(Color::Cyan),
+                    text("Manage accounts from all configured providers."),
+                    text("Codex accounts expose login, quota and history."),
+                    text("Z.ai / Antigravity actions are provider-specific.") | dim,
                 });
                 break;
             case 2:
                 preview = vbox({
-                    text("Add Codex account") | bold,
+                    text("Add Provider") | bold,
                     separator(),
-                    text("Creates an isolated CODEX_HOME profile."),
-                    text("Authenticate with device-code or browser login."),
+                    text("Codex") | color(Color::Cyan),
+                    text("Google Antigravity") | color(Color::Cyan),
+                    text("Z.ai") | color(Color::Cyan),
+                    text(""),
+                    text("Choose the provider first, then configure its account or project.") | dim,
                 });
                 break;
             case 3:
                 preview = vbox({
                     text("Best account") | bold,
                     separator(),
-                    text("Uses persisted health and quota data to select"),
-                    text("the best currently eligible Codex account."),
+                    text("Shows the current selector result."),
+                    text("Provider routing groups will extend this to Codex, Antigravity and Z.ai.") | dim,
                 });
                 break;
             case 4:
                 preview = vbox({
                     text("Doctor") | bold,
                     separator(),
-                    text("Checks local database and Codex CLI availability."),
+                    text("Checks local database and provider runtimes."),
                 });
                 break;
             default:
@@ -273,7 +276,8 @@ void TerminalApp::showDashboard() {
             const auto& account = snapshot[i];
             accountRows.push_back(hbox({
                 text(account.id) | size(WIDTH, EQUAL, 14),
-                text(account.planType.empty() ? "-" : account.planType) | size(WIDTH, EQUAL, 12),
+                text(account.provider) | size(WIDTH, EQUAL, 12),
+                text(account.planType.empty() ? "-" : account.planType) | size(WIDTH, EQUAL, 14),
                 statusBadge(account.status) | size(WIDTH, EQUAL, 18),
                 text(accountIdentity(account)) | flex,
             }));
@@ -310,7 +314,8 @@ void TerminalApp::showDashboard() {
             vbox({
                 hbox({
                     text("ID") | bold | size(WIDTH, EQUAL, 14),
-                    text("PLAN") | bold | size(WIDTH, EQUAL, 12),
+                    text("PROVIDER") | bold | size(WIDTH, EQUAL, 12),
+                    text("PLAN") | bold | size(WIDTH, EQUAL, 14),
                     text("STATUS") | bold | size(WIDTH, EQUAL, 18),
                     text("ACCOUNT") | bold | flex,
                 }),
@@ -320,7 +325,7 @@ void TerminalApp::showDashboard() {
             notice.empty() ? text("") : text(notice) | color(Color::Cyan),
             separator(),
             hbox({
-                keyHint("r", "refresh accounts"),
+                keyHint("r", "refresh supported accounts"),
                 text("   "),
                 keyHint("Enter / Esc / q", "back"),
             }),
@@ -332,7 +337,7 @@ void TerminalApp::showDashboard() {
             try {
                 accounts_.refreshAllAccountStatuses();
                 snapshot = accounts_.listAccounts();
-                notice = "Accounts refreshed.";
+                notice = "Supported accounts refreshed.";
             } catch (const std::exception& exception) {
                 notice = "Refresh error: " + std::string(exception.what());
             }
@@ -355,6 +360,31 @@ void TerminalApp::manageAccounts() {
             return;
         }
 
+        if (account->provider != "codex") {
+            const int action = chooseOption(
+                account->id,
+                {"Details", "Provider setup status", "Back"},
+                accountIdentity(*account));
+            if (action == 0) {
+                showAccountDetails(*account);
+            } else if (action == 1 && account->provider == "zai") {
+                showMessage(
+                    "Z.ai provider",
+                    {
+                        "Authentication mode: API key",
+                        "Coding Plan endpoint: " + ZaiProvider::codingBaseUrl(),
+                        "General API endpoint: " + ZaiProvider::generalBaseUrl(),
+                        "Credential validation and request execution are the next adapter step.",
+                        "Public machine-readable Coding Plan quota API is not documented yet."
+                    });
+            } else if (action == 1) {
+                showMessage(
+                    "Provider setup",
+                    {"This provider adapter is not wired yet."});
+            }
+            continue;
+        }
+
         const int action = chooseOption(
             account->id,
             {"Details", "Login", "Refresh", "Quota", "Quota history", "Back"},
@@ -368,6 +398,31 @@ void TerminalApp::manageAccounts() {
             case 4: showQuotaHistory(*account); break;
             default: break;
         }
+    }
+}
+
+void TerminalApp::addProvider() {
+    const int provider = chooseOption(
+        "Add Provider",
+        {"Codex", "Google Antigravity", "Z.ai", "Back"},
+        "Choose the account/project provider to configure");
+
+    if (provider == 0) {
+        addCodexAccount();
+        return;
+    }
+    if (provider == 1) {
+        showMessage(
+            "Google Antigravity",
+            {
+                "Provider slot reserved.",
+                "Antigravity account/project and quota adapter will use documented Google interfaces.",
+                "Consumer OAuth credentials will not be repurposed as a third-party proxy credential."
+            });
+        return;
+    }
+    if (provider == 2) {
+        addZaiAccount();
     }
 }
 
@@ -398,6 +453,16 @@ void TerminalApp::addCodexAccount() {
     showAccountDetails(created);
 }
 
+void TerminalApp::addZaiAccount() {
+    const Account created = accounts_.addZaiAccount();
+    auto lines = accountDetailLines(created);
+    lines.push_back("Auth mode: Z.ai API key");
+    lines.push_back("Coding Plan: " + ZaiProvider::codingBaseUrl());
+    lines.push_back("General API: " + ZaiProvider::generalBaseUrl());
+    lines.push_back("Next: wire secure API-key entry/validation in the provider adapter.");
+    showMessage("Z.ai provider added", lines);
+}
+
 void TerminalApp::showBestAccount() {
     const auto selected = accounts_.selectAccount("codex");
     if (!selected) {
@@ -414,6 +479,7 @@ void TerminalApp::showBestAccount() {
         (selected->latestUsedPercent
             ? percentText(*selected->latestUsedPercent)
             : std::string("unknown")));
+    lines.push_back("Routing groups for Z.ai/Antigravity will extend this selector.");
     showMessage("Selected account", lines);
 }
 
@@ -422,16 +488,18 @@ void TerminalApp::showDoctor() {
     const bool installed = codex.cliInstalled();
 
     std::vector<std::string> lines = {
-        "Database : OK (" + database_.path() + ")",
-        std::string("Codex CLI: ") + (installed ? "OK" : "MISSING"),
+        "Database     : OK (" + database_.path() + ")",
+        std::string("Codex runtime: ") + (installed ? "OK" : "NOT INSTALLED YET"),
+        "Z.ai adapter : AVAILABLE (API-key wiring pending)",
+        "Antigravity  : PLANNED",
     };
     if (installed) {
-        lines.push_back("Version  : " + codex.cliVersion());
+        lines.push_back("Codex version: " + codex.cliVersion());
     } else {
-        lines.push_back("Install Codex CLI and ensure `codex` is available on PATH.");
+        lines.push_back("Codex runtime is installed automatically when authentication needs it.");
     }
 
-    showMessage("Doctor", lines, !installed);
+    showMessage("Doctor", lines, false);
 }
 
 void TerminalApp::showAccountDetails(const Account& account) {
@@ -439,6 +507,14 @@ void TerminalApp::showAccountDetails(const Account& account) {
 }
 
 void TerminalApp::loginAccount(const Account& account) {
+    if (account.provider != "codex") {
+        showMessage(
+            "Provider authentication",
+            {"Interactive login is not available for provider: " + account.provider},
+            true);
+        return;
+    }
+
     const int method = chooseOption(
         "Authenticate " + account.id,
         {"Device-code login", "Browser callback login", "Back"},
@@ -590,7 +666,7 @@ std::optional<Account> TerminalApp::chooseAccount(const std::string& title) {
     entries.reserve(accounts.size());
     for (const auto& account : accounts) {
         entries.push_back(
-            account.id + "  |  " +
+            account.id + "  |  " + account.provider + "  |  " +
             (account.planType.empty() ? std::string("-") : account.planType) + "  |  " +
             accountIdentity(account));
     }
@@ -609,7 +685,7 @@ std::optional<Account> TerminalApp::chooseAccount(const std::string& title) {
                     text(" Accounts ") | bold,
                     separator(),
                     menu->Render() | frame | flex,
-                }) | border | size(WIDTH, EQUAL, 52),
+                }) | border | size(WIDTH, EQUAL, 58),
                 accountCard(accounts[static_cast<std::size_t>(selected)]),
             }) | flex,
             separator(),
