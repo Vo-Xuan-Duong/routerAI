@@ -143,6 +143,18 @@ int main() {
         }
         require(rejectedConsumerAuto, "automatic custom groups must reject consumer-only accounts");
 
+        // Simulate an old/external SQLite row that bypassed RoutingManager::saveGroup.
+        // Selection itself must still refuse to auto-cycle the consumer profile.
+        routerai::RoutingGroup legacyAutomatic;
+        legacyAutomatic.id = "legacy-consumer-auto";
+        legacyAutomatic.displayName = "Legacy consumer auto pool";
+        legacyAutomatic.strategy = routerai::RoutingStrategy::RoundRobin;
+        legacyAutomatic.accountIds = {"codex-01", "zai-01"};
+        database.saveRoutingGroup(legacyAutomatic);
+        const auto legacySelection = routing.select("legacy-consumer-auto", 3000);
+        require(legacySelection.has_value(), "legacy automatic group should still find API-capable members");
+        require(legacySelection->candidate.account.id == "zai-01", "legacy automatic group must skip consumer accounts at selection time");
+
         routerai::RoutingGroup validMixedApi;
         validMixedApi.id = "custom-api";
         validMixedApi.displayName = "Custom API";
