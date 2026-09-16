@@ -11,6 +11,7 @@ public:
     Account createPlaceholderAccount(const std::string& accountId) const override;
     LoginResult login(Account& account, const LoginOptions& options) const override;
     AuthStatus authStatus(const Account& account) const override;
+    AccountProfile readProfile(const Account& account) const override;
     QuotaSnapshot readQuota(const Account& account) const override;
 
     bool cliInstalled() const;
