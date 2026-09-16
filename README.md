@@ -1,8 +1,8 @@
 # routerAI
 
-Interactive terminal AI account router written in C++20.
+Interactive multi-provider AI account router written in C++20.
 
-routerAI manages provider accounts as isolated local runtime profiles. The Codex integration delegates ChatGPT authentication and token refresh to the official Codex runtime, and reads account metadata plus usage/quota through the Codex app-server protocol instead of scraping ChatGPT pages or storing OAuth tokens inside routerAI.
+routerAI manages provider accounts as isolated local profiles and is moving toward provider-specific routing groups behind one local OpenAI-compatible API.
 
 ## Current scope
 
@@ -13,12 +13,10 @@ routerAI manages provider accounts as isolated local runtime profiles. The Codex
 - Provider abstraction
 - One isolated `CODEX_HOME` per Codex account
 - routerAI-managed Codex runtime bootstrap
-- Official Codex CLI authentication
-- Official `codex app-server --listen stdio://` JSONL transport
-- Codex `account/read` identity and plan metadata retrieval
-- Codex `account/rateLimits/read` quota retrieval
-- Persistent quota snapshot/window history in SQLite
-- Account health status derived from quota signals
+- Official Codex authentication and app-server account/quota reads
+- Z.ai provider scaffold with official Coding Plan and general API endpoints
+- Google Antigravity provider slot reserved for a documented account/project adapter
+- Persistent quota snapshot/window history for providers that expose supported quota data
 - Deterministic account selection using status, latest usage and priority
 - Cross-platform child-process transport for Windows and POSIX
 - CTest coverage for SQLite migration/history and account selection
@@ -34,78 +32,57 @@ router
 The main screen provides:
 
 ```text
-routerAI 0.4.0
+routerAI 0.5.0
 
 Navigation                 Preview
 --------------------       ----------------------------
-Dashboard                  Current account health
+Dashboard                  Current provider/account health
 Accounts                   Account management
-Add Codex account          Create isolated profile
+Add Provider               Codex / Google Antigravity / Z.ai
 Best account               Route selection preview
-Doctor                     Dependency checks
+Doctor                     Runtime/provider checks
 Exit
 
 Up/Down navigate   Enter select   Esc/q exit
 ```
 
-### Dashboard
+### Add Provider
 
-The dashboard shows total accounts, Ready/Warning/Unavailable counts, account plan/status, and account identity. Press `r` to refresh account authentication/profile state.
+`Add Provider` is provider-first:
 
-### Accounts
+```text
+Add Provider
+  |
+  +-- Codex
+  |     +-- ChatGPT account profile
+  |
+  +-- Google Antigravity
+  |     +-- account/project adapter (in progress)
+  |
+  +-- Z.ai
+        +-- Coding Plan/API provider account
+```
 
-Select an account with Up/Down and Enter. The account screen then exposes:
+Z.ai currently uses the documented endpoints:
 
-- Details
-- Login
-- Refresh
-- Quota
-- Quota history
+```text
+Coding Plan : https://api.z.ai/api/coding/paas/v4
+General API : https://api.z.ai/api/paas/v4
+```
 
-No account ID needs to be typed manually.
+The Z.ai account record and provider adapter are present. Secure API-key entry/validation and request execution are the next implementation step. routerAI does not scrape undocumented Z.ai quota endpoints; quota will only be enabled when a supported machine-readable path is available.
+
+### Dashboard and Accounts
+
+The dashboard shows provider, plan, status and identity for every local account. Codex accounts currently expose Details, Login, Refresh, Quota and Quota History. Provider-specific actions for Z.ai and Antigravity are being added independently.
 
 ### Managed Codex runtime
 
 You do **not** need to install Codex CLI manually.
 
-When an operation such as Login, Profile or Quota needs Codex and no usable runtime is available, routerAI invokes OpenAI's official standalone installer and installs Codex inside the project runtime directory:
+When Login/Profile/Quota needs Codex and no usable runtime exists, routerAI invokes OpenAI's official standalone installer and installs Codex below `.routerai/runtime/codex/`. If a working `codex` already exists on `PATH`, routerAI can use it as a fallback.
 
-```text
-.routerai/
-└── runtime/
-    └── codex/
-        ├── bin/
-        │   └── codex.exe        # Windows
-        └── installer-home/
-```
-
-On Linux/macOS the executable is `.routerai/runtime/codex/bin/codex`.
-
-If a working `codex` already exists on `PATH`, routerAI can use it as a fallback. A routerAI-managed runtime is preferred when present.
-
-The runtime installer storage is separate from account credentials. Each account still gets an isolated `CODEX_HOME`:
-
-```text
-.routerai/
-├── runtime/
-│   └── codex/                   # shared executable/runtime
-└── accounts/
-    ├── codex-01/
-    │   └── codex-home/          # account 1 auth/state
-    └── codex-02/
-        └── codex-home/          # account 2 auth/state
-```
-
-### Quota
-
-Quota is rendered as terminal progress bars. Each rate-limit window shows:
-
-- used percentage
-- window duration
-- reset time
-- backend usage permission
-
-Every successful quota read is also persisted in SQLite for history and routing decisions.
+Each Codex account still receives its own isolated `CODEX_HOME` below `.routerai/accounts/<id>/codex-home`.
 
 ## Architecture
 
@@ -116,40 +93,41 @@ FTXUI TerminalApp
 AccountManager
        |
        +-- AccountSelector
-       |     +-- READY before WARNING
-       |     +-- lower known usage first
-       |     +-- higher priority as tie-break
        |
-       +-- SQLite account metadata
-       +-- SQLite quota snapshots/windows
+       +-- SQLite accounts / quota history
        |
        +-- Provider abstraction
                |
                +-- CodexProvider
-                       |
-                       +-- CodexCli
-                       |     +-- managed runtime bootstrap
-                       |     +-- login / login status
-                       |
-                       +-- CodexAppServerClient
-                             +-- JSONL over stdin/stdout
-                             +-- account/read
-                             +-- account/rateLimits/read
-                             |
-                             +-- DuplexProcess
+               |     +-- managed Codex runtime
+               |     +-- account/read
+               |     +-- account/rateLimits/read
+               |
+               +-- ZaiProvider
+               |     +-- Coding Plan endpoint
+               |     +-- General API endpoint
+               |
+               +-- AntigravityProvider (planned adapter)
 ```
 
-routerAI stores account metadata and runtime-home paths. ChatGPT OAuth credentials remain inside the Codex-managed credential store for the matching account `CODEX_HOME`.
+Future routing groups are designed around provider membership:
+
+```text
+Codex only
+Antigravity only
+Z.ai only
+Mixed
+```
+
+A group will eventually select only enabled, healthy and authorized accounts/projects, then apply routing/failover policy independently from the TUI.
 
 ## Requirements
 
 - CMake 3.24+
 - C++20 compiler
 - vcpkg
-- Internet access the first time routerAI bootstraps the Codex runtime
-- A terminal with ANSI/interactive input support (Windows Terminal, PowerShell, modern Linux/macOS terminals)
-
-You do not need npm, Homebrew, or a globally installed Codex CLI.
+- A terminal with ANSI/interactive input support
+- Internet access the first time routerAI bootstraps provider runtimes
 
 Dependencies managed through vcpkg:
 
@@ -160,29 +138,7 @@ Dependencies managed through vcpkg:
 
 ## Build with vcpkg
 
-```bash
-git clone https://github.com/Vo-Xuan-Duong/routerAI.git
-cd routerAI
-
-cmake -S . -B build \
-  -DCMAKE_TOOLCHAIN_FILE=/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake
-
-cmake --build build --config Release
-ctest --test-dir build --output-on-failure
-```
-
-On Windows/Visual Studio:
-
-```powershell
-cmake -S . -B build `
-  -DCMAKE_TOOLCHAIN_FILE=C:/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake
-
-cmake --build build --config Release
-ctest --test-dir build -C Release --output-on-failure
-.\build\Release\router.exe
-```
-
-On Windows with MinGW + Ninja:
+### Windows + MinGW + Ninja
 
 ```cmd
 cmake -S . -B build -G Ninja ^
@@ -191,46 +147,40 @@ cmake -S . -B build -G Ninja ^
   -DVCPKG_TARGET_TRIPLET=x64-mingw-dynamic
 
 cmake --build build -j 8
+ctest --test-dir build --output-on-failure
 build\router.exe
 ```
 
-## Account lifecycle
+Do not mix MinGW/GCC with the `x64-windows` MSVC triplet.
 
-Create an account from the TUI:
+### Windows + Visual Studio
 
-```text
-Add Codex account
-    |
-    +-- Authenticate with device code
-    +-- Authenticate in browser
-    +-- Do this later
+```powershell
+cmake -S . -B build `
+  -DCMAKE_TOOLCHAIN_FILE=C:/dev/vcpkg/scripts/buildsystems/vcpkg.cmake
+
+cmake --build build --config Release
+ctest --test-dir build -C Release --output-on-failure
+.\build\Release\router.exe
 ```
-
-On the first authentication, routerAI automatically bootstraps its Codex runtime if necessary. After authentication, routerAI synchronizes account identity and plan metadata through `account/read`.
-
-Quota-derived account status follows a conservative rule:
-
-- explicit `ordinaryUsageAllowed=false` -> `LIMITED`
-- usage allowed + reached signal or >=90% window usage -> `WARNING`
-- usage allowed below warning threshold -> `READY`
-- missing permission signal -> preserve existing status
 
 ## Data
 
-Account metadata and quota history are stored in `router.db` by default. Existing databases are migrated additively. Provider runtime state lives under `.routerai/`. Both are local runtime data and should not be committed.
+Account metadata and quota history are stored in `router.db` by default. Provider runtime state lives under `.routerai/`. Both are local runtime data and should not be committed.
 
 ## Development status
 
 1. SQLite persistence and provider abstraction - done
-2. Codex account isolation + official authentication - done
-3. Codex app-server account/quota retrieval - done
-4. Account identity/plan metadata sync - done
-5. Quota history + health status - done
-6. Deterministic multi-account selection - done
-7. Full-screen interactive terminal UI - done
-8. Self-managed Codex runtime bootstrap - implemented
-9. Cooldown, failure tracking and failover - next
-10. Persistent Codex worker pool / request execution
-11. OpenAI-compatible local API
-12. Additional providers
-13. Optional web/desktop management UI
+2. Codex account isolation + official auth/runtime - done
+3. Codex account/quota retrieval - done
+4. Quota history + health status - done
+5. Full-screen interactive terminal UI - done
+6. Self-managed Codex runtime bootstrap - done
+7. Provider-first `Add Provider` flow - done
+8. Z.ai provider scaffold - done
+9. Z.ai secure credential + request adapter - next
+10. Google Antigravity account/project adapter
+11. Routing groups: Codex-only / Antigravity-only / Z.ai-only / Mixed
+12. Cooldown, failure tracking and failover
+13. OpenAI-compatible local API
+14. Optional web/desktop management UI
