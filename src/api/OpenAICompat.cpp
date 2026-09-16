@@ -47,7 +47,7 @@ std::string resolveRoutingGroup(
     return fallbackGroup;
 }
 
-std::string resolveProviderModel(
+std::string resolveProviderModelOverride(
     const nlohmann::json& request,
     const std::string& provider) {
     if (!request.is_object()) {
@@ -55,16 +55,33 @@ std::string resolveProviderModel(
     }
 
     const auto router = request.find("router");
-    if (router != request.end() && router->is_object()) {
-        const auto models = router->find("models");
-        if (models != router->end() && models->is_object()) {
-            const auto it = models->find(provider);
-            if (it != models->end() && it->is_string()) {
-                return it->get<std::string>();
-            }
-        }
+    if (router == request.end() || !router->is_object()) {
+        return {};
     }
 
+    const auto models = router->find("models");
+    if (models == router->end() || !models->is_object()) {
+        return {};
+    }
+
+    const auto it = models->find(provider);
+    if (it == models->end() || !it->is_string()) {
+        return {};
+    }
+    return it->get<std::string>();
+}
+
+std::string resolveProviderModel(
+    const nlohmann::json& request,
+    const std::string& provider) {
+    const std::string overrideModel = resolveProviderModelOverride(request, provider);
+    if (!overrideModel.empty()) {
+        return overrideModel;
+    }
+
+    if (!request.is_object()) {
+        return {};
+    }
     const std::string model = request.value("model", std::string{});
     return isRouterPseudoModel(model) ? std::string{} : model;
 }
