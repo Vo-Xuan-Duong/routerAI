@@ -149,6 +149,37 @@ void printQuota(
     }
 }
 
+void printQuotaHistory(const std::vector<routerai::QuotaHistoryEntry>& entries) {
+    if (entries.empty()) {
+        std::cout << "No quota history recorded.\n";
+        return;
+    }
+
+    std::cout << std::left
+              << std::setw(21) << "CAPTURED"
+              << std::setw(10) << "SNAPSHOT"
+              << std::setw(16) << "BUCKET"
+              << std::setw(12) << "WINDOW"
+              << std::setw(10) << "USED"
+              << std::setw(10) << "PERIOD"
+              << "RESET\n";
+    std::cout << std::string(100, '-') << '\n';
+
+    for (const auto& entry : entries) {
+        std::ostringstream used;
+        used << std::fixed << std::setprecision(1) << entry.usedPercent << '%';
+        std::cout << std::left
+                  << std::setw(21) << entry.capturedAt
+                  << std::setw(10) << entry.snapshotId
+                  << std::setw(16) << (entry.limitId.empty() ? "default" : entry.limitId)
+                  << std::setw(12) << (entry.windowName.empty() ? "-" : entry.windowName)
+                  << std::setw(10) << used.str()
+                  << std::setw(10) << formatDuration(entry.windowDurationMinutes)
+                  << formatResetTime(entry.resetsAtUnix)
+                  << '\n';
+    }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -214,6 +245,24 @@ int main(int argc, char** argv) {
             if (!found) {
                 std::cout << "No Codex accounts configured.\n";
             }
+        });
+
+        std::string quotaHistoryAccountId;
+        std::size_t quotaHistoryLimit = 50;
+        auto* quotaHistory = app.add_subcommand(
+            "quota-history",
+            "Show locally recorded quota history for an account");
+        quotaHistory->add_option(
+            "account-id",
+            quotaHistoryAccountId,
+            "Account ID, for example codex-01")->required();
+        quotaHistory->add_option(
+            "--limit",
+            quotaHistoryLimit,
+            "Maximum history rows to show")->default_val(50);
+        quotaHistory->callback([&]() {
+            printQuotaHistory(
+                accounts.listQuotaHistory(quotaHistoryAccountId, quotaHistoryLimit));
         });
 
         auto* account = app.add_subcommand("account", "Manage provider accounts");
