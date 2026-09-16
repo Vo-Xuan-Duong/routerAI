@@ -102,7 +102,7 @@ void LocalApiServer::configureRoutes() {
 
         nlohmann::json data = nlohmann::json::array();
         for (const auto& group : routing_.listGroups()) {
-            if (!group.enabled) {
+            if (!group.enabled || !routing_.groupSupportsCompletions(group)) {
                 continue;
             }
             data.push_back({
