@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(routerAI VERSION 0.1.0 LANGUAGES CXX)
+project(routerAI VERSION 0.2.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -14,8 +14,10 @@ find_package(nlohmann_json CONFIG REQUIRED)
 add_executable(router
     src/main.cpp
     src/core/AccountManager.cpp
+    src/providers/codex/CodexCli.cpp
     src/providers/codex/CodexProvider.cpp
     src/storage/SQLiteDatabase.cpp
+    src/system/ProcessRunner.cpp
 )
 
 target_include_directories(router PRIVATE src)
