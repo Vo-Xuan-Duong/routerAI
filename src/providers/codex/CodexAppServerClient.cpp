@@ -1,5 +1,7 @@
 #include "providers/codex/CodexAppServerClient.hpp"
 
+#include "providers/codex/CodexCli.hpp"
+
 #include <nlohmann/json.hpp>
 
 #include <stdexcept>
@@ -62,11 +64,20 @@ QuotaBucket parseBucket(const nlohmann::json& value, const std::string& fallback
     return bucket;
 }
 
+std::string codexProgram() {
+    CodexCli cli;
+    const auto executable = cli.executablePath();
+    if (executable.empty()) {
+        throw std::runtime_error("Codex runtime is not installed");
+    }
+    return executable.string();
+}
+
 }  // namespace
 
 CodexAppServerClient::CodexAppServerClient(const std::filesystem::path& codexHome)
     : process_(
-          "codex",
+          codexProgram(),
           {"app-server", "--listen", "stdio://"},
           {{"CODEX_HOME", codexHome.string()}}) {
     initialize();
@@ -78,7 +89,7 @@ void CodexAppServerClient::initialize() {
          {
              {"name", "routerAI"},
              {"title", "routerAI"},
-             {"version", "0.3.0"},
+             {"version", "0.4.0"},
          }},
         {"capabilities", {{"experimentalApi", false}}},
     };
@@ -135,7 +146,6 @@ nlohmann::json CodexAppServerClient::readResponse(std::int64_t requestId) {
         }
 
         if (!message.contains("id") || message.at("id").is_null()) {
-            // Notifications are intentionally ignored by this minimal synchronous client.
             continue;
         }
 
