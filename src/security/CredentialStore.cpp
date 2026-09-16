@@ -3,10 +3,13 @@
 #include <cctype>
 #include <fstream>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 #ifdef _WIN32
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <windows.h>
 #include <wincrypt.h>
 #else
@@ -105,6 +108,9 @@ std::optional<std::string> CredentialStore::get(const std::string& reference) co
     }
 
     const auto stored = readBytes(path);
+    if (stored.empty()) {
+        throw std::runtime_error("Credential file is empty or unreadable: " + path.string());
+    }
 #ifdef _WIN32
     DATA_BLOB input{};
     input.pbData = const_cast<BYTE*>(stored.data());
