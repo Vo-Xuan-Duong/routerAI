@@ -27,9 +27,9 @@ void FailurePolicy::recordFailure(
     account.cooldownUntilUnix = nowUnix + cooldownSeconds(account.consecutiveFailures);
     account.lastError = error;
 
-    if (account.status == AccountStatus::Ready) {
-        account.status = AccountStatus::Warning;
-    }
+    // Transport/request failures are tracked independently from provider
+    // health. READY/WARNING/LIMITED remain reserved for auth/quota/provider
+    // state so a temporary network error does not overwrite quota semantics.
 }
 
 void FailurePolicy::recordSuccess(Account& account) {
