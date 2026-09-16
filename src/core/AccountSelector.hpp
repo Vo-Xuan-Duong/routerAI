@@ -2,6 +2,7 @@
 
 #include "core/Account.hpp"
 
+#include <cstdint>
 #include <optional>
 #include <vector>
 
@@ -16,6 +17,9 @@ class AccountSelector {
 public:
     std::optional<RoutingCandidate> select(
         const std::vector<RoutingCandidate>& candidates) const;
+    std::optional<RoutingCandidate> select(
+        const std::vector<RoutingCandidate>& candidates,
+        std::int64_t nowUnix) const;
 };
 
 }  // namespace routerai
