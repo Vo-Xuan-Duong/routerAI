@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/AccountProfile.hpp"
 #include "core/Quota.hpp"
 #include "system/DuplexProcess.hpp"
 
@@ -16,6 +17,7 @@ class CodexAppServerClient {
 public:
     explicit CodexAppServerClient(const std::filesystem::path& codexHome);
 
+    AccountProfile readAccountProfile();
     QuotaSnapshot readRateLimits();
 
 private:
@@ -31,6 +33,7 @@ private:
         const std::optional<nlohmann::json>& params = std::nullopt);
     nlohmann::json readResponse(std::int64_t requestId);
 
+    static AccountProfile parseAccountProfile(const nlohmann::json& result);
     static QuotaSnapshot parseQuotaSnapshot(const nlohmann::json& result);
 };
 
