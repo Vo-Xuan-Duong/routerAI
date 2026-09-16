@@ -36,3 +36,23 @@ if(MSVC)
 else()
     target_compile_options(router PRIVATE -Wall -Wextra -Wpedantic)
 endif()
+
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(router_storage_tests
+        tests/SQLiteDatabaseTests.cpp
+        src/storage/SQLiteDatabase.cpp
+    )
+    target_include_directories(router_storage_tests PRIVATE src)
+    target_link_libraries(router_storage_tests PRIVATE
+        unofficial::sqlite3::sqlite3
+    )
+
+    if(MSVC)
+        target_compile_options(router_storage_tests PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(router_storage_tests PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+
+    add_test(NAME sqlite_storage COMMAND router_storage_tests)
+endif()
