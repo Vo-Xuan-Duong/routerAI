@@ -27,7 +27,14 @@ public:
 
     std::optional<RoutingDecision> select(
         const std::string& groupId,
+        std::int64_t nowUnix,
+        const std::vector<std::string>& excludedAccountIds);
+    std::optional<RoutingDecision> select(
+        const std::string& groupId,
         std::int64_t nowUnix);
+    std::optional<RoutingDecision> select(
+        const std::string& groupId,
+        const std::vector<std::string>& excludedAccountIds);
     std::optional<RoutingDecision> select(const std::string& groupId);
 
     void recordFailure(
