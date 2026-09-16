@@ -1,6 +1,7 @@
 #include "ui/TerminalApp.hpp"
 
 #include "api/LocalApiServer.hpp"
+#include "providers/antigravity/AntigravityApiClient.hpp"
 #include "providers/antigravity/AntigravityProvider.hpp"
 #include "providers/codex/CodexProvider.hpp"
 #include "providers/zai/ZaiProvider.hpp"
@@ -77,6 +78,10 @@ RoutingStrategy strategyFromIndex(int index) {
         case 4: return RoutingStrategy::Manual;
         default: return RoutingStrategy::HealthFirst;
     }
+}
+
+bool fixedManualGroup(const RoutingGroup& group) {
+    return group.id == "codex-default" || group.id == "antigravity-default";
 }
 
 Element accountCard(const Account& account) {
@@ -197,7 +202,7 @@ TerminalApp::MainAction TerminalApp::chooseMainAction() {
                 preview = vbox({text("Add Provider") | bold, separator(), text("Codex / Google Antigravity / Z.ai")});
                 break;
             case 3:
-                preview = vbox({text("Routing Groups") | bold, separator(), text("Codex-only, Z.ai-only, Antigravity and mixed groups."), text("Health-first / least-used / priority / round-robin / manual") | dim});
+                preview = vbox({text("Routing Groups") | bold, separator(), text("Consumer profiles stay manual; API projects may use automatic strategies."), text("Health-first / least-used / priority / round-robin / manual") | dim});
                 break;
             case 4:
                 preview = vbox({text("Local API") | bold, separator(), text(api_.baseUrl()), text(api_.running() ? "RUNNING" : "STOPPED") | color(api_.running() ? Color::Green : Color::Red)});
@@ -342,6 +347,27 @@ void TerminalApp::manageAccounts() {
             continue;
         }
 
+        if (account->provider == "antigravity" && account->providerMode == "api-project") {
+            const int action = chooseOption(
+                account->id,
+                {"Details", "Configure Gemini API key", "Refresh", "Back"},
+                "Antigravity managed-agent API project");
+            if (action == 0) showAccountDetails(*account);
+            if (action == 1) {
+                const auto key = promptInput("Gemini API key", "Paste API key", true);
+                if (key && !key->empty()) {
+                    const auto outcome = accounts_.configureAntigravityApiKey(account->id, *key);
+                    routing_.syncDefaultGroups();
+                    auto lines = accountDetailLines(outcome.account);
+                    lines.push_back("Endpoint: " + AntigravityApiClient::endpoint());
+                    lines.push_back("Agent: " + AntigravityApiClient::agentName());
+                    showMessage("Antigravity API configured", lines);
+                }
+            }
+            if (action == 2) refreshAccount(*account);
+            continue;
+        }
+
         const int action = chooseOption(
             account->id,
             {"Details", "Login", "Refresh", "Quota", "Quota history", "Back"},
@@ -389,6 +415,31 @@ void TerminalApp::addCodexAccount() {
 }
 
 void TerminalApp::addAntigravityAccount() {
+    const int mode = chooseOption(
+        "Google Antigravity",
+        {"Consumer CLI session", "Gemini API project", "Back"},
+        "Consumer session exposes local Antigravity quota/profile; API project can participate in mixed routing");
+    if (mode < 0 || mode == 2) return;
+
+    if (mode == 1) {
+        const Account created = accounts_.addAntigravityApiProject();
+        const auto key = promptInput("Configure " + created.id, "Paste Gemini API key", true);
+        if (!key || key->empty()) {
+            routing_.syncDefaultGroups();
+            showAccountDetails(created);
+            return;
+        }
+
+        const auto outcome = accounts_.configureAntigravityApiKey(created.id, *key);
+        routing_.syncDefaultGroups();
+        auto lines = accountDetailLines(outcome.account);
+        lines.push_back("Endpoint: " + AntigravityApiClient::endpoint());
+        lines.push_back("Agent: " + AntigravityApiClient::agentName());
+        lines.push_back("This API project participates in mixed-default routing.");
+        showMessage("Antigravity API project configured", lines);
+        return;
+    }
+
     AntigravityProvider provider;
     if (!provider.cliInstalled()) {
         const int action = chooseOption(
@@ -482,6 +533,16 @@ void TerminalApp::showRoutingGroups() {
                 showMessage("Routing preview", lines);
             }
         } else if (action == 1) {
+            if (fixedManualGroup(group)) {
+                showMessage(
+                    "Manual routing required",
+                    {
+                        group.id + " contains consumer profiles.",
+                        "Its strategy is fixed to Manual; select an account explicitly instead of automatic cycling."
+                    });
+                continue;
+            }
+
             const int strategy = chooseOption(
                 "Routing strategy",
                 {"Health first", "Least used", "Priority", "Round robin", "Manual", "Back"},
@@ -507,7 +568,7 @@ void TerminalApp::showRoutingGroups() {
             for (const auto& accountId : group.accountIds) {
                 const auto account = accounts_.findAccount(accountId);
                 rows.push_back(account
-                    ? account->id + " | " + account->provider + " | " + toString(account->status)
+                    ? account->id + " | " + account->provider + " | " + account->providerMode + " | " + toString(account->status)
                     : accountId + " | missing");
             }
             showScrollableRows("Members - " + group.id, rows);
@@ -522,10 +583,11 @@ void TerminalApp::showLocalApi() {
         "API key  : " + api_.apiKey(),
         "",
         "OpenAI-compatible endpoint: POST /v1/chat/completions",
-        "Select a group with X-Router-Group: codex-default / zai-default / mixed-default.",
+        "Select a group with X-Router-Group or model: router/<group>.",
         "GET /v1/models lists routing groups as router/<group> models.",
-        "Streaming is not implemented yet; use stream=false.",
-        "For mixed groups you may provide router.models.{provider} model mappings in the JSON request."
+        "stream=true is supported as buffered SSE; token-by-token streaming is not implemented yet.",
+        "For mixed groups use router.models.zai and router.models.antigravity for provider-specific models.",
+        "mixed-default contains API-capable backends only; consumer profiles remain manual."
     };
     showMessage("Local API", lines, !api_.running());
 }
@@ -562,11 +624,12 @@ void TerminalApp::showDoctor() {
     const bool antigravityInstalled = antigravity.cliInstalled();
 
     std::vector<std::string> lines = {
-        "Database    : OK (" + database_.path() + ")",
-        std::string("Local API   : ") + (api_.running() ? "OK " : "FAILED ") + api_.baseUrl(),
-        std::string("Codex       : ") + (codexInstalled ? "OK" : "NOT BOOTSTRAPPED YET"),
-        std::string("Antigravity : ") + (antigravityInstalled ? "OK" : "NOT INSTALLED"),
-        "Z.ai        : credential-backed General API adapter available",
+        "Database               : OK (" + database_.path() + ")",
+        std::string("Local API              : ") + (api_.running() ? "OK " : "FAILED ") + api_.baseUrl(),
+        std::string("Codex runtime          : ") + (codexInstalled ? "OK" : "NOT BOOTSTRAPPED YET"),
+        std::string("Antigravity consumer CLI: ") + (antigravityInstalled ? "OK" : "NOT INSTALLED"),
+        "Antigravity Agent API  : adapter available",
+        "Z.ai General API       : adapter available",
     };
     if (codexInstalled) lines.push_back("Codex version: " + codex.cliVersion());
     if (antigravityInstalled) lines.push_back("agy version  : " + antigravity.cliVersion());
@@ -579,6 +642,13 @@ void TerminalApp::showAccountDetails(const Account& account) {
 
 void TerminalApp::loginAccount(const Account& account) {
     if (account.provider == "antigravity") {
+        if (account.providerMode == "api-project") {
+            showMessage(
+                "Antigravity API project",
+                {"This account uses a Gemini API key. Choose Configure Gemini API key from Accounts instead of interactive login."});
+            return;
+        }
+
         const auto outcome = accounts_.loginAccount(account.id, false);
         auto lines = accountDetailLines(outcome.account);
         if (!outcome.result.detail.empty()) lines.push_back("Auth: " + outcome.result.detail);
