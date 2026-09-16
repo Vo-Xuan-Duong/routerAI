@@ -15,6 +15,7 @@ Account CodexProvider::createPlaceholderAccount(const std::string& accountId) co
     Account account;
     account.id = accountId;
     account.provider = name();
+    account.providerMode = "subscription-runtime";
     account.displayName = "Codex ChatGPT account";
     account.runtimeHome = (std::filesystem::path(".routerai") /
         "accounts" / accountId / "codex-home").string();
