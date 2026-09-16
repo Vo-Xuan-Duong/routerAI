@@ -19,6 +19,14 @@ AccountStatus statusFromString(const std::string& value) {
     return AccountStatus::Error;
 }
 
+RoutingStrategy routingStrategyFromString(const std::string& value) {
+    if (value == "LEAST_USED") return RoutingStrategy::LeastUsed;
+    if (value == "PRIORITY") return RoutingStrategy::Priority;
+    if (value == "ROUND_ROBIN") return RoutingStrategy::RoundRobin;
+    if (value == "MANUAL") return RoutingStrategy::Manual;
+    return RoutingStrategy::HealthFirst;
+}
+
 void checkSqlite(int rc, sqlite3* db, const char* context) {
     if (rc != SQLITE_OK && rc != SQLITE_DONE && rc != SQLITE_ROW) {
         throw std::runtime_error(std::string(context) + ": " + sqlite3_errmsg(db));
@@ -70,15 +78,24 @@ Account readAccount(sqlite3_stmt* stmt) {
     Account account;
     account.id = columnText(stmt, 0);
     account.provider = columnText(stmt, 1);
-    account.displayName = columnText(stmt, 2);
-    account.email = columnText(stmt, 3);
-    account.planType = columnText(stmt, 4);
-    account.runtimeHome = columnText(stmt, 5);
-    account.status = statusFromString(columnText(stmt, 6));
-    account.priority = sqlite3_column_int(stmt, 7);
-    account.enabled = sqlite3_column_int(stmt, 8) != 0;
+    account.providerMode = columnText(stmt, 2);
+    account.displayName = columnText(stmt, 3);
+    account.email = columnText(stmt, 4);
+    account.planType = columnText(stmt, 5);
+    account.runtimeHome = columnText(stmt, 6);
+    account.credentialRef = columnText(stmt, 7);
+    account.status = statusFromString(columnText(stmt, 8));
+    account.priority = sqlite3_column_int(stmt, 9);
+    account.enabled = sqlite3_column_int(stmt, 10) != 0;
+    account.consecutiveFailures = sqlite3_column_int(stmt, 11);
+    account.cooldownUntilUnix = columnOptionalInt64(stmt, 12);
+    account.lastError = columnText(stmt, 13);
     return account;
 }
+
+constexpr const char* accountSelectColumns =
+    "id, provider, provider_mode, display_name, email, plan_type, runtime_home, "
+    "credential_ref, status, priority, enabled, consecutive_failures, cooldown_until_unix, last_error";
 
 }  // namespace
 
@@ -132,13 +149,18 @@ void SQLiteDatabase::initialize() {
         "CREATE TABLE IF NOT EXISTS accounts ("
         "id TEXT PRIMARY KEY,"
         "provider TEXT NOT NULL,"
+        "provider_mode TEXT NOT NULL DEFAULT '',"
         "display_name TEXT NOT NULL,"
         "email TEXT NOT NULL DEFAULT '',"
         "plan_type TEXT NOT NULL DEFAULT '',"
         "runtime_home TEXT NOT NULL DEFAULT '',"
+        "credential_ref TEXT NOT NULL DEFAULT '',"
         "status TEXT NOT NULL,"
         "priority INTEGER NOT NULL DEFAULT 100,"
         "enabled INTEGER NOT NULL DEFAULT 1,"
+        "consecutive_failures INTEGER NOT NULL DEFAULT 0,"
+        "cooldown_until_unix INTEGER NULL,"
+        "last_error TEXT NOT NULL DEFAULT '',"
         "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP"
         ");"
     );
@@ -151,6 +173,21 @@ void SQLiteDatabase::initialize() {
     }
     if (!columnExists("accounts", "plan_type")) {
         execute("ALTER TABLE accounts ADD COLUMN plan_type TEXT NOT NULL DEFAULT '';" );
+    }
+    if (!columnExists("accounts", "provider_mode")) {
+        execute("ALTER TABLE accounts ADD COLUMN provider_mode TEXT NOT NULL DEFAULT '';" );
+    }
+    if (!columnExists("accounts", "credential_ref")) {
+        execute("ALTER TABLE accounts ADD COLUMN credential_ref TEXT NOT NULL DEFAULT '';" );
+    }
+    if (!columnExists("accounts", "consecutive_failures")) {
+        execute("ALTER TABLE accounts ADD COLUMN consecutive_failures INTEGER NOT NULL DEFAULT 0;" );
+    }
+    if (!columnExists("accounts", "cooldown_until_unix")) {
+        execute("ALTER TABLE accounts ADD COLUMN cooldown_until_unix INTEGER NULL;" );
+    }
+    if (!columnExists("accounts", "last_error")) {
+        execute("ALTER TABLE accounts ADD COLUMN last_error TEXT NOT NULL DEFAULT '';" );
     }
 
     execute(
@@ -181,6 +218,29 @@ void SQLiteDatabase::initialize() {
     );
 
     execute(
+        "CREATE TABLE IF NOT EXISTS routing_groups ("
+        "id TEXT PRIMARY KEY,"
+        "display_name TEXT NOT NULL,"
+        "strategy TEXT NOT NULL DEFAULT 'HEALTH_FIRST',"
+        "enabled INTEGER NOT NULL DEFAULT 1,"
+        "manual_account_id TEXT NOT NULL DEFAULT '',"
+        "last_index INTEGER NOT NULL DEFAULT -1,"
+        "created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP"
+        ");"
+    );
+
+    execute(
+        "CREATE TABLE IF NOT EXISTS routing_group_members ("
+        "group_id TEXT NOT NULL,"
+        "account_id TEXT NOT NULL,"
+        "position INTEGER NOT NULL DEFAULT 0,"
+        "PRIMARY KEY(group_id, account_id),"
+        "FOREIGN KEY(group_id) REFERENCES routing_groups(id) ON DELETE CASCADE,"
+        "FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+        ");"
+    );
+
+    execute(
         "CREATE INDEX IF NOT EXISTS idx_quota_snapshots_account_id "
         "ON quota_snapshots(account_id, id DESC);"
     );
@@ -188,26 +248,36 @@ void SQLiteDatabase::initialize() {
         "CREATE INDEX IF NOT EXISTS idx_quota_windows_snapshot_id "
         "ON quota_windows(snapshot_id);"
     );
+    execute(
+        "CREATE INDEX IF NOT EXISTS idx_routing_group_members_group "
+        "ON routing_group_members(group_id, position);"
+    );
 }
 
 void SQLiteDatabase::insertAccount(const Account& account) {
     constexpr const char* sql =
-        "INSERT INTO accounts(id, provider, display_name, email, plan_type, runtime_home, status, priority, enabled) "
-        "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?);";
+        "INSERT INTO accounts(id, provider, provider_mode, display_name, email, plan_type, runtime_home, "
+        "credential_ref, status, priority, enabled, consecutive_failures, cooldown_until_unix, last_error) "
+        "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
 
     sqlite3_stmt* stmt = nullptr;
     checkSqlite(sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr), db_, "prepare insert account");
 
     sqlite3_bind_text(stmt, 1, account.id.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, account.provider.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 3, account.displayName.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 4, account.email.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 5, account.planType.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 6, account.runtimeHome.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, account.providerMode.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, account.displayName.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 5, account.email.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 6, account.planType.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 7, account.runtimeHome.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 8, account.credentialRef.c_str(), -1, SQLITE_TRANSIENT);
     const std::string status = toString(account.status);
-    sqlite3_bind_text(stmt, 7, status.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 8, account.priority);
-    sqlite3_bind_int(stmt, 9, account.enabled ? 1 : 0);
+    sqlite3_bind_text(stmt, 9, status.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 10, account.priority);
+    sqlite3_bind_int(stmt, 11, account.enabled ? 1 : 0);
+    sqlite3_bind_int(stmt, 12, account.consecutiveFailures);
+    bindOptionalInt64(stmt, 13, account.cooldownUntilUnix);
+    sqlite3_bind_text(stmt, 14, account.lastError.c_str(), -1, SQLITE_TRANSIENT);
 
     const int rc = sqlite3_step(stmt);
     if (rc != SQLITE_DONE) {
@@ -221,22 +291,28 @@ void SQLiteDatabase::insertAccount(const Account& account) {
 
 void SQLiteDatabase::updateAccount(const Account& account) {
     constexpr const char* sql =
-        "UPDATE accounts SET provider = ?, display_name = ?, email = ?, plan_type = ?, runtime_home = ?, "
-        "status = ?, priority = ?, enabled = ? WHERE id = ?;";
+        "UPDATE accounts SET provider = ?, provider_mode = ?, display_name = ?, email = ?, plan_type = ?, "
+        "runtime_home = ?, credential_ref = ?, status = ?, priority = ?, enabled = ?, "
+        "consecutive_failures = ?, cooldown_until_unix = ?, last_error = ? WHERE id = ?;";
 
     sqlite3_stmt* stmt = nullptr;
     checkSqlite(sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr), db_, "prepare update account");
 
     sqlite3_bind_text(stmt, 1, account.provider.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 2, account.displayName.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 3, account.email.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 4, account.planType.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 5, account.runtimeHome.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, account.providerMode.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, account.displayName.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, account.email.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 5, account.planType.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 6, account.runtimeHome.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 7, account.credentialRef.c_str(), -1, SQLITE_TRANSIENT);
     const std::string status = toString(account.status);
-    sqlite3_bind_text(stmt, 6, status.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmt, 7, account.priority);
-    sqlite3_bind_int(stmt, 8, account.enabled ? 1 : 0);
-    sqlite3_bind_text(stmt, 9, account.id.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 8, status.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 9, account.priority);
+    sqlite3_bind_int(stmt, 10, account.enabled ? 1 : 0);
+    sqlite3_bind_int(stmt, 11, account.consecutiveFailures);
+    bindOptionalInt64(stmt, 12, account.cooldownUntilUnix);
+    sqlite3_bind_text(stmt, 13, account.lastError.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 14, account.id.c_str(), -1, SQLITE_TRANSIENT);
 
     const int rc = sqlite3_step(stmt);
     if (rc != SQLITE_DONE) {
@@ -249,12 +325,11 @@ void SQLiteDatabase::updateAccount(const Account& account) {
 }
 
 std::optional<Account> SQLiteDatabase::findAccount(const std::string& accountId) const {
-    constexpr const char* sql =
-        "SELECT id, provider, display_name, email, plan_type, runtime_home, status, priority, enabled "
-        "FROM accounts WHERE id = ? LIMIT 1;";
+    const std::string sql =
+        std::string("SELECT ") + accountSelectColumns + " FROM accounts WHERE id = ? LIMIT 1;";
 
     sqlite3_stmt* stmt = nullptr;
-    checkSqlite(sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr), db_, "prepare find account");
+    checkSqlite(sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr), db_, "prepare find account");
     sqlite3_bind_text(stmt, 1, accountId.c_str(), -1, SQLITE_TRANSIENT);
 
     std::optional<Account> account;
@@ -267,12 +342,11 @@ std::optional<Account> SQLiteDatabase::findAccount(const std::string& accountId)
 }
 
 std::vector<Account> SQLiteDatabase::listAccounts() const {
-    constexpr const char* sql =
-        "SELECT id, provider, display_name, email, plan_type, runtime_home, status, priority, enabled "
-        "FROM accounts ORDER BY created_at ASC, id ASC;";
+    const std::string sql =
+        std::string("SELECT ") + accountSelectColumns + " FROM accounts ORDER BY created_at ASC, id ASC;";
 
     sqlite3_stmt* stmt = nullptr;
-    checkSqlite(sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr), db_, "prepare list accounts");
+    checkSqlite(sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr), db_, "prepare list accounts");
 
     std::vector<Account> accounts;
     while (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -417,6 +491,123 @@ std::vector<QuotaHistoryEntry> SQLiteDatabase::listQuotaHistory(
 
     sqlite3_finalize(stmt);
     return entries;
+}
+
+void SQLiteDatabase::saveRoutingGroup(const RoutingGroup& group) {
+    execute("BEGIN IMMEDIATE;");
+    try {
+        constexpr const char* groupSql =
+            "INSERT INTO routing_groups(id, display_name, strategy, enabled, manual_account_id, last_index) "
+            "VALUES(?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET display_name=excluded.display_name, strategy=excluded.strategy, "
+            "enabled=excluded.enabled, manual_account_id=excluded.manual_account_id, last_index=excluded.last_index;";
+
+        sqlite3_stmt* groupStmt = nullptr;
+        checkSqlite(sqlite3_prepare_v2(db_, groupSql, -1, &groupStmt, nullptr), db_, "prepare routing group");
+        sqlite3_bind_text(groupStmt, 1, group.id.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(groupStmt, 2, group.displayName.c_str(), -1, SQLITE_TRANSIENT);
+        const std::string strategy = toString(group.strategy);
+        sqlite3_bind_text(groupStmt, 3, strategy.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(groupStmt, 4, group.enabled ? 1 : 0);
+        sqlite3_bind_text(groupStmt, 5, group.manualAccountId.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(groupStmt, 6, group.lastIndex);
+        checkSqlite(sqlite3_step(groupStmt), db_, "save routing group");
+        sqlite3_finalize(groupStmt);
+
+        sqlite3_stmt* deleteStmt = nullptr;
+        checkSqlite(
+            sqlite3_prepare_v2(db_, "DELETE FROM routing_group_members WHERE group_id = ?;", -1, &deleteStmt, nullptr),
+            db_,
+            "prepare routing member delete");
+        sqlite3_bind_text(deleteStmt, 1, group.id.c_str(), -1, SQLITE_TRANSIENT);
+        checkSqlite(sqlite3_step(deleteStmt), db_, "delete routing members");
+        sqlite3_finalize(deleteStmt);
+
+        constexpr const char* memberSql =
+            "INSERT INTO routing_group_members(group_id, account_id, position) VALUES(?, ?, ?);";
+        sqlite3_stmt* memberStmt = nullptr;
+        checkSqlite(sqlite3_prepare_v2(db_, memberSql, -1, &memberStmt, nullptr), db_, "prepare routing member");
+        for (std::size_t i = 0; i < group.accountIds.size(); ++i) {
+            sqlite3_reset(memberStmt);
+            sqlite3_clear_bindings(memberStmt);
+            sqlite3_bind_text(memberStmt, 1, group.id.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(memberStmt, 2, group.accountIds[i].c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int64(memberStmt, 3, static_cast<sqlite3_int64>(i));
+            checkSqlite(sqlite3_step(memberStmt), db_, "save routing member");
+        }
+        sqlite3_finalize(memberStmt);
+        execute("COMMIT;");
+    } catch (...) {
+        try {
+            execute("ROLLBACK;");
+        } catch (...) {
+        }
+        throw;
+    }
+}
+
+std::optional<RoutingGroup> SQLiteDatabase::findRoutingGroup(const std::string& groupId) const {
+    constexpr const char* groupSql =
+        "SELECT id, display_name, strategy, enabled, manual_account_id, last_index "
+        "FROM routing_groups WHERE id = ? LIMIT 1;";
+    sqlite3_stmt* groupStmt = nullptr;
+    checkSqlite(sqlite3_prepare_v2(db_, groupSql, -1, &groupStmt, nullptr), db_, "prepare find routing group");
+    sqlite3_bind_text(groupStmt, 1, groupId.c_str(), -1, SQLITE_TRANSIENT);
+
+    RoutingGroup group;
+    if (sqlite3_step(groupStmt) != SQLITE_ROW) {
+        sqlite3_finalize(groupStmt);
+        return std::nullopt;
+    }
+    group.id = columnText(groupStmt, 0);
+    group.displayName = columnText(groupStmt, 1);
+    group.strategy = routingStrategyFromString(columnText(groupStmt, 2));
+    group.enabled = sqlite3_column_int(groupStmt, 3) != 0;
+    group.manualAccountId = columnText(groupStmt, 4);
+    group.lastIndex = sqlite3_column_int(groupStmt, 5);
+    sqlite3_finalize(groupStmt);
+
+    constexpr const char* memberSql =
+        "SELECT account_id FROM routing_group_members WHERE group_id = ? ORDER BY position ASC;";
+    sqlite3_stmt* memberStmt = nullptr;
+    checkSqlite(sqlite3_prepare_v2(db_, memberSql, -1, &memberStmt, nullptr), db_, "prepare routing members");
+    sqlite3_bind_text(memberStmt, 1, groupId.c_str(), -1, SQLITE_TRANSIENT);
+    while (sqlite3_step(memberStmt) == SQLITE_ROW) {
+        group.accountIds.push_back(columnText(memberStmt, 0));
+    }
+    sqlite3_finalize(memberStmt);
+    return group;
+}
+
+std::vector<RoutingGroup> SQLiteDatabase::listRoutingGroups() const {
+    constexpr const char* sql = "SELECT id FROM routing_groups ORDER BY created_at ASC, id ASC;";
+    sqlite3_stmt* stmt = nullptr;
+    checkSqlite(sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr), db_, "prepare list routing groups");
+
+    std::vector<std::string> ids;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        ids.push_back(columnText(stmt, 0));
+    }
+    sqlite3_finalize(stmt);
+
+    std::vector<RoutingGroup> groups;
+    groups.reserve(ids.size());
+    for (const auto& id : ids) {
+        if (auto group = findRoutingGroup(id)) {
+            groups.push_back(std::move(*group));
+        }
+    }
+    return groups;
+}
+
+void SQLiteDatabase::updateRoutingGroupCursor(const std::string& groupId, int lastIndex) {
+    constexpr const char* sql = "UPDATE routing_groups SET last_index = ? WHERE id = ?;";
+    sqlite3_stmt* stmt = nullptr;
+    checkSqlite(sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr), db_, "prepare routing cursor update");
+    sqlite3_bind_int(stmt, 1, lastIndex);
+    sqlite3_bind_text(stmt, 2, groupId.c_str(), -1, SQLITE_TRANSIENT);
+    checkSqlite(sqlite3_step(stmt), db_, "update routing cursor");
+    sqlite3_finalize(stmt);
 }
 
 }  // namespace routerai
