@@ -13,12 +13,24 @@
 
 namespace routerai {
 
+struct CodexCompletionResult {
+    std::string text;
+    std::string model;
+    std::string threadId;
+    std::string turnId;
+};
+
 class CodexAppServerClient {
 public:
     explicit CodexAppServerClient(const std::filesystem::path& codexHome);
 
     AccountProfile readAccountProfile();
     QuotaSnapshot readRateLimits();
+    CodexCompletionResult runPrompt(
+        const std::string& prompt,
+        const std::string& model = {},
+        const std::string& baseInstructions = {},
+        const std::string& developerInstructions = {});
 
 private:
     DuplexProcess process_;
@@ -32,6 +44,7 @@ private:
         const std::string& method,
         const std::optional<nlohmann::json>& params = std::nullopt);
     nlohmann::json readResponse(std::int64_t requestId);
+    nlohmann::json readMessage();
 
     static AccountProfile parseAccountProfile(const nlohmann::json& result);
     static QuotaSnapshot parseQuotaSnapshot(const nlohmann::json& result);
