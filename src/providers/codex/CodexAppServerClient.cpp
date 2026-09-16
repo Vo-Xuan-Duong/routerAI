@@ -160,8 +160,38 @@ nlohmann::json CodexAppServerClient::readResponse(std::int64_t requestId) {
     }
 }
 
+AccountProfile CodexAppServerClient::readAccountProfile() {
+    return parseAccountProfile(request("account/read", nlohmann::json::object()));
+}
+
 QuotaSnapshot CodexAppServerClient::readRateLimits() {
     return parseQuotaSnapshot(request("account/rateLimits/read"));
+}
+
+AccountProfile CodexAppServerClient::parseAccountProfile(const nlohmann::json& result) {
+    if (!result.is_object()) {
+        throw std::runtime_error("Codex account response is not an object");
+    }
+
+    AccountProfile profile;
+    if (result.contains("requiresOpenaiAuth") && result.at("requiresOpenaiAuth").is_boolean()) {
+        profile.requiresOpenaiAuth = result.at("requiresOpenaiAuth").get<bool>();
+    }
+
+    const auto account = result.find("account");
+    if (account == result.end() || account->is_null()) {
+        return profile;
+    }
+    if (!account->is_object()) {
+        throw std::runtime_error("Codex account payload is not an object");
+    }
+
+    profile.authType = optionalString(*account, "type");
+    if (profile.authType == "chatgpt") {
+        profile.email = optionalString(*account, "email");
+        profile.planType = optionalString(*account, "planType");
+    }
+    return profile;
 }
 
 QuotaSnapshot CodexAppServerClient::parseQuotaSnapshot(const nlohmann::json& result) {
