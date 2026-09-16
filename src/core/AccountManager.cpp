@@ -54,6 +54,25 @@ std::optional<AccountStatus> statusFromQuota(const QuotaSnapshot& snapshot) {
     return AccountStatus::Ready;
 }
 
+std::optional<double> latestUsedPercent(
+    const std::vector<QuotaHistoryEntry>& history) {
+    if (history.empty()) {
+        return std::nullopt;
+    }
+
+    const std::int64_t latestSnapshotId = history.front().snapshotId;
+    std::optional<double> highest;
+    for (const auto& entry : history) {
+        if (entry.snapshotId != latestSnapshotId) {
+            break;
+        }
+        if (!highest || entry.usedPercent > *highest) {
+            highest = entry.usedPercent;
+        }
+    }
+    return highest;
+}
+
 }  // namespace
 
 AccountManager::AccountManager(SQLiteDatabase& database) : database_(database) {}
@@ -173,6 +192,25 @@ std::vector<QuotaHistoryEntry> AccountManager::listQuotaHistory(
         throw std::runtime_error("Account not found: " + accountId);
     }
     return database_.listQuotaHistory(accountId, limit);
+}
+
+std::optional<RoutingCandidate> AccountManager::selectAccount(
+    const std::string& provider) const {
+    std::vector<RoutingCandidate> candidates;
+    for (const auto& account : database_.listAccounts()) {
+        if (account.provider != provider) {
+            continue;
+        }
+
+        RoutingCandidate candidate;
+        candidate.account = account;
+        candidate.latestUsedPercent = latestUsedPercent(
+            database_.listQuotaHistory(account.id, 100));
+        candidates.push_back(std::move(candidate));
+    }
+
+    AccountSelector selector;
+    return selector.select(candidates);
 }
 
 std::optional<Account> AccountManager::findAccount(const std::string& accountId) const {
