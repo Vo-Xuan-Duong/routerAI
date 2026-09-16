@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <sstream>
 #include <stdexcept>
+#include <utility>
 
 #ifndef _WIN32
 #include <sys/wait.h>
@@ -14,6 +15,7 @@ namespace routerai {
 
 namespace {
 
+#ifndef _WIN32
 std::string quotePosix(const std::string& value) {
     std::string quoted = "'";
     for (const char ch : value) {
@@ -26,6 +28,7 @@ std::string quotePosix(const std::string& value) {
     quoted += "'";
     return quoted;
 }
+#endif
 
 #ifdef _WIN32
 std::string quoteWindowsEnvValue(const std::string& value) {
