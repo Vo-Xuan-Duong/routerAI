@@ -42,6 +42,7 @@ jobs:
           ./build/router quota
           ./build/router account add codex
           ./build/router account list
+          ./build/router select
           ./build/router quota-history codex-01
           ./build/router quota
 
@@ -77,5 +78,6 @@ jobs:
           .\build\Release\router.exe quota
           .\build\Release\router.exe account add codex
           .\build\Release\router.exe account list
+          .\build\Release\router.exe select
           .\build\Release\router.exe quota-history codex-01
           .\build\Release\router.exe quota
