@@ -22,6 +22,8 @@ add_executable(router
     src/core/FailurePolicy.cpp
     src/core/RoutingManager.cpp
     src/net/HttpClient.cpp
+    src/providers/antigravity/AntigravityCli.cpp
+    src/providers/antigravity/AntigravityProvider.cpp
     src/providers/codex/CodexAppServerClient.cpp
     src/providers/codex/CodexCli.cpp
     src/providers/codex/CodexProvider.cpp
