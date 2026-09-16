@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: routerai-build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   linux:
     runs-on: ubuntu-latest
@@ -32,6 +36,7 @@ jobs:
           ./build/router --version
           ./build/router status
           ./build/router doctor
+          ./build/router quota
 
   windows:
     runs-on: windows-latest
@@ -59,3 +64,4 @@ jobs:
           .\build\Release\router.exe --version
           .\build\Release\router.exe status
           .\build\Release\router.exe doctor
+          .\build\Release\router.exe quota
