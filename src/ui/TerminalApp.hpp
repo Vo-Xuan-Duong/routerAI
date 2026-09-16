@@ -22,7 +22,7 @@ private:
     enum class MainAction {
         Dashboard,
         Accounts,
-        AddCodex,
+        AddProvider,
         BestAccount,
         Doctor,
         Exit,
@@ -34,7 +34,9 @@ private:
     MainAction chooseMainAction();
     void showDashboard();
     void manageAccounts();
+    void addProvider();
     void addCodexAccount();
+    void addZaiAccount();
     void showBestAccount();
     void showDoctor();
 
