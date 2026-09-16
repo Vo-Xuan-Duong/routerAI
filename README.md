@@ -2,7 +2,7 @@
 
 Interactive terminal AI account router written in C++20.
 
-routerAI manages provider accounts as isolated local runtime profiles. The Codex integration delegates ChatGPT authentication and token refresh to the official Codex CLI, and reads account metadata plus usage/quota through the Codex app-server protocol instead of scraping ChatGPT pages or storing OAuth tokens inside routerAI.
+routerAI manages provider accounts as isolated local runtime profiles. The Codex integration delegates ChatGPT authentication and token refresh to the official Codex runtime, and reads account metadata plus usage/quota through the Codex app-server protocol instead of scraping ChatGPT pages or storing OAuth tokens inside routerAI.
 
 ## Current scope
 
@@ -12,6 +12,7 @@ routerAI manages provider accounts as isolated local runtime profiles. The Codex
 - SQLite account persistence and additive schema migration
 - Provider abstraction
 - One isolated `CODEX_HOME` per Codex account
+- routerAI-managed Codex runtime bootstrap
 - Official Codex CLI authentication
 - Official `codex app-server --listen stdio://` JSONL transport
 - Codex `account/read` identity and plan metadata retrieval
@@ -63,6 +64,38 @@ Select an account with Up/Down and Enter. The account screen then exposes:
 
 No account ID needs to be typed manually.
 
+### Managed Codex runtime
+
+You do **not** need to install Codex CLI manually.
+
+When an operation such as Login, Profile or Quota needs Codex and no usable runtime is available, routerAI invokes OpenAI's official standalone installer and installs Codex inside the project runtime directory:
+
+```text
+.routerai/
+└── runtime/
+    └── codex/
+        ├── bin/
+        │   └── codex.exe        # Windows
+        └── installer-home/
+```
+
+On Linux/macOS the executable is `.routerai/runtime/codex/bin/codex`.
+
+If a working `codex` already exists on `PATH`, routerAI can use it as a fallback. A routerAI-managed runtime is preferred when present.
+
+The runtime installer storage is separate from account credentials. Each account still gets an isolated `CODEX_HOME`:
+
+```text
+.routerai/
+├── runtime/
+│   └── codex/                   # shared executable/runtime
+└── accounts/
+    ├── codex-01/
+    │   └── codex-home/          # account 1 auth/state
+    └── codex-02/
+        └── codex-home/          # account 2 auth/state
+```
+
 ### Quota
 
 Quota is rendered as terminal progress bars. Each rate-limit window shows:
@@ -95,6 +128,7 @@ AccountManager
                +-- CodexProvider
                        |
                        +-- CodexCli
+                       |     +-- managed runtime bootstrap
                        |     +-- login / login status
                        |
                        +-- CodexAppServerClient
@@ -105,26 +139,17 @@ AccountManager
                              +-- DuplexProcess
 ```
 
-Each Codex account has an isolated runtime directory:
-
-```text
-.routerai/
-└── accounts/
-    ├── codex-01/
-    │   └── codex-home/
-    └── codex-02/
-        └── codex-home/
-```
-
-routerAI stores account metadata and runtime-home paths. ChatGPT OAuth credentials remain inside the Codex-managed credential store for the matching `CODEX_HOME`.
+routerAI stores account metadata and runtime-home paths. ChatGPT OAuth credentials remain inside the Codex-managed credential store for the matching account `CODEX_HOME`.
 
 ## Requirements
 
 - CMake 3.24+
 - C++20 compiler
 - vcpkg
-- OpenAI Codex CLI available as `codex` on `PATH`
+- Internet access the first time routerAI bootstraps the Codex runtime
 - A terminal with ANSI/interactive input support (Windows Terminal, PowerShell, modern Linux/macOS terminals)
+
+You do not need npm, Homebrew, or a globally installed Codex CLI.
 
 Dependencies managed through vcpkg:
 
@@ -157,6 +182,18 @@ ctest --test-dir build -C Release --output-on-failure
 .\build\Release\router.exe
 ```
 
+On Windows with MinGW + Ninja:
+
+```cmd
+cmake -S . -B build -G Ninja ^
+  -DCMAKE_BUILD_TYPE=Release ^
+  -DCMAKE_TOOLCHAIN_FILE=C:/dev/vcpkg/scripts/buildsystems/vcpkg.cmake ^
+  -DVCPKG_TARGET_TRIPLET=x64-mingw-dynamic
+
+cmake --build build -j 8
+build\router.exe
+```
+
 ## Account lifecycle
 
 Create an account from the TUI:
@@ -169,7 +206,7 @@ Add Codex account
     +-- Do this later
 ```
 
-After authentication, routerAI synchronizes account identity and plan metadata through `account/read`.
+On the first authentication, routerAI automatically bootstraps its Codex runtime if necessary. After authentication, routerAI synchronizes account identity and plan metadata through `account/read`.
 
 Quota-derived account status follows a conservative rule:
 
@@ -185,14 +222,15 @@ Account metadata and quota history are stored in `router.db` by default. Existin
 ## Development status
 
 1. SQLite persistence and provider abstraction - done
-2. Codex account isolation + official CLI authentication - done
+2. Codex account isolation + official authentication - done
 3. Codex app-server account/quota retrieval - done
 4. Account identity/plan metadata sync - done
 5. Quota history + health status - done
 6. Deterministic multi-account selection - done
-7. Full-screen interactive terminal UI - implemented
-8. Cooldown, failure tracking and failover - next
-9. Persistent Codex worker pool / request execution
-10. OpenAI-compatible local API
-11. Additional providers
-12. Optional web/desktop management UI
+7. Full-screen interactive terminal UI - done
+8. Self-managed Codex runtime bootstrap - implemented
+9. Cooldown, failure tracking and failover - next
+10. Persistent Codex worker pool / request execution
+11. OpenAI-compatible local API
+12. Additional providers
+13. Optional web/desktop management UI
