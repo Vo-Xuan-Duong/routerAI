@@ -1,12 +1,17 @@
 #include "core/AccountManager.hpp"
+#include "core/Quota.hpp"
 #include "providers/codex/CodexProvider.hpp"
 #include "storage/SQLiteDatabase.hpp"
 
 #include <CLI/CLI.hpp>
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
+#include <chrono>
+#include <ctime>
 #include <iomanip>
 #include <iostream>
+#include <sstream>
 #include <string>
 
 namespace {
@@ -44,6 +49,89 @@ void printAccount(const routerai::Account& account) {
     std::cout << "Runtime home : " << account.runtimeHome << '\n';
 }
 
+std::string formatDuration(const std::optional<std::int64_t>& minutes) {
+    if (!minutes) {
+        return "unknown";
+    }
+    if (*minutes % (24 * 60) == 0) {
+        return std::to_string(*minutes / (24 * 60)) + "d";
+    }
+    if (*minutes % 60 == 0) {
+        return std::to_string(*minutes / 60) + "h";
+    }
+    return std::to_string(*minutes) + "m";
+}
+
+std::string formatResetTime(const std::optional<std::int64_t>& unixSeconds) {
+    if (!unixSeconds) {
+        return "unknown";
+    }
+
+    const std::time_t value = static_cast<std::time_t>(*unixSeconds);
+    std::tm local{};
+#ifdef _WIN32
+    localtime_s(&local, &value);
+#else
+    localtime_r(&value, &local);
+#endif
+
+    std::ostringstream output;
+    output << std::put_time(&local, "%Y-%m-%d %H:%M:%S");
+    return output.str();
+}
+
+void printQuota(
+    const routerai::Account& account,
+    const routerai::QuotaSnapshot& snapshot) {
+    std::cout << "Account      : " << account.id << '\n';
+    std::cout << "Provider     : " << account.provider << '\n';
+
+    if (!snapshot.accountId.empty()) {
+        std::cout << "Provider ID  : " << snapshot.accountId << '\n';
+    }
+
+    std::cout << "Usage        : ";
+    if (!snapshot.ordinaryUsageAllowed) {
+        std::cout << "UNKNOWN\n";
+    } else {
+        std::cout << (*snapshot.ordinaryUsageAllowed ? "ALLOWED" : "BLOCKED") << '\n';
+    }
+
+    if (snapshot.buckets.empty()) {
+        std::cout << "Quota        : no rate-limit buckets returned\n";
+        return;
+    }
+
+    for (const auto& bucket : snapshot.buckets) {
+        std::cout << '\n';
+        std::cout << "Bucket       : "
+                  << (bucket.limitId.empty() ? "default" : bucket.limitId) << '\n';
+        if (!bucket.limitName.empty()) {
+            std::cout << "Name         : " << bucket.limitName << '\n';
+        }
+        if (!bucket.model.empty()) {
+            std::cout << "Model        : " << bucket.model << '\n';
+        }
+        if (!bucket.planType.empty()) {
+            std::cout << "Plan         : " << bucket.planType << '\n';
+        }
+        if (!bucket.reachedType.empty()) {
+            std::cout << "Reached      : " << bucket.reachedType << '\n';
+        }
+
+        for (const auto& window : bucket.windows) {
+            const double remaining = std::clamp(100.0 - window.usedPercent, 0.0, 100.0);
+            std::cout << "  " << std::left << std::setw(10) << window.name
+                      << "used " << std::fixed << std::setprecision(1)
+                      << window.usedPercent << "%"
+                      << " | remaining " << remaining << "%"
+                      << " | window " << formatDuration(window.windowDurationMinutes)
+                      << " | reset " << formatResetTime(window.resetsAtUnix)
+                      << '\n';
+        }
+    }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -53,7 +141,7 @@ int main(int argc, char** argv) {
         routerai::AccountManager accounts(database);
 
         CLI::App app{"routerAI - console-first AI account router"};
-        app.set_version_flag("--version", "routerAI 0.2.0");
+        app.set_version_flag("--version", "routerAI 0.3.0");
         app.require_subcommand(1);
 
         auto* status = app.add_subcommand("status", "Show local router status");
@@ -74,6 +162,40 @@ int main(int argc, char** argv) {
                 std::cout << "Version   : " << codex.cliVersion() << '\n';
             } else {
                 std::cout << "Action    : install Codex CLI and ensure `codex` is on PATH\n";
+            }
+        });
+
+        std::string quotaAccountId;
+        auto* quota = app.add_subcommand("quota", "Read provider quota for one or all accounts");
+        quota->add_option("account-id", quotaAccountId, "Optional account ID, for example codex-01");
+        quota->callback([&]() {
+            if (!quotaAccountId.empty()) {
+                const auto account = accounts.findAccount(quotaAccountId);
+                if (!account) {
+                    throw std::runtime_error("Account not found: " + quotaAccountId);
+                }
+                printQuota(*account, accounts.readQuota(quotaAccountId));
+                return;
+            }
+
+            bool found = false;
+            for (const auto& account : accounts.listAccounts()) {
+                if (account.provider != "codex") {
+                    continue;
+                }
+                found = true;
+                try {
+                    printQuota(account, accounts.readQuota(account.id));
+                } catch (const std::exception& exception) {
+                    std::cout << "Account      : " << account.id << '\n';
+                    std::cout << "Quota        : ERROR\n";
+                    std::cout << "Detail       : " << exception.what() << '\n';
+                }
+                std::cout << std::string(72, '-') << '\n';
+            }
+
+            if (!found) {
+                std::cout << "No Codex accounts configured.\n";
             }
         });
 
