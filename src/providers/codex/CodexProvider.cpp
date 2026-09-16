@@ -30,11 +30,11 @@ LoginResult CodexProvider::login(Account& account, const LoginOptions& options) 
             "accounts" / account.id / "codex-home").string();
     }
 
-    if (!cli_.isInstalled()) {
+    if (!cli_.ensureInstalled()) {
         account.status = AccountStatus::Error;
         return LoginResult{
             false,
-            "Codex CLI is not installed or is not available on PATH"
+            "routerAI could not install the Codex runtime automatically"
         };
     }
 
@@ -63,6 +63,10 @@ AuthStatus CodexProvider::authStatus(const Account& account) const {
         return AuthStatus{false, "Account has no Codex runtime home"};
     }
 
+    if (!cli_.isInstalled()) {
+        return AuthStatus{false, "Codex runtime is not installed yet"};
+    }
+
     const auto status = cli_.status(account.runtimeHome);
     return AuthStatus{status.authenticated, status.detail};
 }
@@ -71,8 +75,8 @@ AccountProfile CodexProvider::readProfile(const Account& account) const {
     if (account.runtimeHome.empty()) {
         throw std::runtime_error("Account has no Codex runtime home");
     }
-    if (!cli_.isInstalled()) {
-        throw std::runtime_error("Codex CLI is not installed or is not available on PATH");
+    if (!cli_.ensureInstalled()) {
+        throw std::runtime_error("routerAI could not install the Codex runtime automatically");
     }
 
     CodexAppServerClient client(account.runtimeHome);
@@ -83,8 +87,8 @@ QuotaSnapshot CodexProvider::readQuota(const Account& account) const {
     if (account.runtimeHome.empty()) {
         throw std::runtime_error("Account has no Codex runtime home");
     }
-    if (!cli_.isInstalled()) {
-        throw std::runtime_error("Codex CLI is not installed or is not available on PATH");
+    if (!cli_.ensureInstalled()) {
+        throw std::runtime_error("routerAI could not install the Codex runtime automatically");
     }
 
     const auto auth = cli_.status(account.runtimeHome);
