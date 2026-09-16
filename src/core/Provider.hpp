@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/Account.hpp"
+#include "core/AccountProfile.hpp"
 #include "core/Quota.hpp"
 
 #include <string>
@@ -29,6 +30,7 @@ public:
     virtual Account createPlaceholderAccount(const std::string& accountId) const = 0;
     virtual LoginResult login(Account& account, const LoginOptions& options) const = 0;
     virtual AuthStatus authStatus(const Account& account) const = 0;
+    virtual AccountProfile readProfile(const Account& account) const = 0;
     virtual QuotaSnapshot readQuota(const Account& account) const = 0;
 };
 
