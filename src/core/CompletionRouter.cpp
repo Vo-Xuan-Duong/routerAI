@@ -1,11 +1,11 @@
 #include "core/CompletionRouter.hpp"
 
+#include "api/OpenAICompat.hpp"
 #include "providers/codex/CodexAppServerClient.hpp"
 #include "providers/zai/ZaiClient.hpp"
 
 #include <nlohmann/json.hpp>
 
-#include <algorithm>
 #include <ctime>
 #include <optional>
 #include <stdexcept>
@@ -134,28 +134,6 @@ bool retryableStatus(long status) {
     return status == 408 || status == 409 || status == 429 || status >= 500;
 }
 
-bool isRouterPseudoModel(const std::string& model) {
-    return model.starts_with("router/");
-}
-
-std::string providerModel(
-    const nlohmann::json& request,
-    const std::string& provider) {
-    const auto router = request.find("router");
-    if (router != request.end() && router->is_object()) {
-        const auto models = router->find("models");
-        if (models != router->end() && models->is_object()) {
-            const auto it = models->find(provider);
-            if (it != models->end() && it->is_string()) {
-                return it->get<std::string>();
-            }
-        }
-    }
-
-    const std::string model = request.value("model", std::string{});
-    return isRouterPseudoModel(model) ? std::string{} : model;
-}
-
 }  // namespace
 
 CompletionRouter::CompletionRouter(
@@ -224,7 +202,8 @@ CompletionRouteResult CompletionRouter::chatCompletions(
                     continue;
                 }
 
-                const std::string selectedModel = providerModel(request, "zai");
+                const std::string selectedModel =
+                    openai_compat::resolveProviderModel(request, "zai");
                 if (selectedModel.empty()) {
                     lastError =
                         "Z.ai requires a provider model. Set model to a Z.ai model or provide router.models.zai.";
@@ -286,7 +265,8 @@ CompletionRouteResult CompletionRouter::chatCompletions(
 
             if (account.provider == "codex") {
                 const CodexPrompt prompt = toCodexPrompt(request);
-                const std::string model = providerModel(request, "codex");
+                const std::string model =
+                    openai_compat::resolveProviderModel(request, "codex");
                 CodexAppServerClient client(account.runtimeHome);
                 const CodexCompletionResult completion = client.runPrompt(
                     prompt.prompt,
