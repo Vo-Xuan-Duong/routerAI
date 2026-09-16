@@ -1,6 +1,7 @@
 #include "core/AccountManager.hpp"
 
 #include "providers/codex/CodexProvider.hpp"
+#include "providers/zai/ZaiProvider.hpp"
 
 #include <algorithm>
 #include <iomanip>
@@ -79,6 +80,13 @@ AccountManager::AccountManager(SQLiteDatabase& database) : database_(database) {
 
 Account AccountManager::addCodexAccount() {
     CodexProvider provider;
+    Account account = provider.createPlaceholderAccount(nextAccountId(provider.name()));
+    database_.insertAccount(account);
+    return account;
+}
+
+Account AccountManager::addZaiAccount() {
+    ZaiProvider provider;
     Account account = provider.createPlaceholderAccount(nextAccountId(provider.name()));
     database_.insertAccount(account);
     return account;
