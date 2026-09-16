@@ -435,7 +435,7 @@ void TerminalApp::addAntigravityAccount() {
         auto lines = accountDetailLines(outcome.account);
         lines.push_back("Endpoint: " + AntigravityApiClient::endpoint());
         lines.push_back("Agent: " + AntigravityApiClient::agentName());
-        lines.push_back("This API project participates in mixed-default routing.");
+        lines.push_back("This API project participates in antigravity-api-default and mixed-default routing.");
         showMessage("Antigravity API project configured", lines);
         return;
     }
@@ -515,14 +515,22 @@ void TerminalApp::showRoutingGroups() {
         if (groupIndex < 0 || static_cast<std::size_t>(groupIndex) >= groups.size()) return;
 
         RoutingGroup group = groups[static_cast<std::size_t>(groupIndex)];
+        const bool fixedManual = fixedManualGroup(group);
         const int action = chooseOption(
             group.id,
-            {"Preview selection", "Change strategy", "Show members", "Back"},
-            routingStrategyLabel(group.strategy));
+            {"Preview selection", fixedManual ? "Select manual account" : "Change strategy", "Show members", "Back"},
+            fixedManual && group.manualAccountId.empty()
+                ? "Manual group: no account selected yet"
+                : routingStrategyLabel(group.strategy));
         if (action == 0) {
             const auto decision = routing_.select(group.id);
             if (!decision) {
-                showMessage("Routing preview", {"No eligible account in " + group.id}, true);
+                showMessage(
+                    "Routing preview",
+                    {fixedManual && group.manualAccountId.empty()
+                        ? "No manual account is selected for " + group.id
+                        : "No eligible account in " + group.id},
+                    true);
             } else {
                 auto lines = accountDetailLines(decision->candidate.account);
                 lines.push_back("Group: " + group.id);
@@ -533,13 +541,31 @@ void TerminalApp::showRoutingGroups() {
                 showMessage("Routing preview", lines);
             }
         } else if (action == 1) {
-            if (fixedManualGroup(group)) {
+            if (fixedManual) {
+                if (group.accountIds.empty()) {
+                    showMessage("Manual routing", {"This group has no accounts."}, true);
+                    continue;
+                }
+
+                std::vector<std::string> members;
+                for (const auto& accountId : group.accountIds) {
+                    const auto account = accounts_.findAccount(accountId);
+                    members.push_back(account
+                        ? account->id + " | " + accountIdentity(*account) + " | " + toString(account->status)
+                        : accountId);
+                }
+                members.push_back("Back");
+                const int selected = chooseOption("Select manual account", members, group.id);
+                if (selected < 0 || static_cast<std::size_t>(selected) >= group.accountIds.size()) {
+                    continue;
+                }
+
+                group.strategy = RoutingStrategy::Manual;
+                group.manualAccountId = group.accountIds[static_cast<std::size_t>(selected)];
+                routing_.saveGroup(group);
                 showMessage(
-                    "Manual routing required",
-                    {
-                        group.id + " contains consumer profiles.",
-                        "Its strategy is fixed to Manual; select an account explicitly instead of automatic cycling."
-                    });
+                    "Manual account selected",
+                    {group.id + " -> " + group.manualAccountId});
                 continue;
             }
 
@@ -577,19 +603,44 @@ void TerminalApp::showRoutingGroups() {
 }
 
 void TerminalApp::showLocalApi() {
-    std::vector<std::string> lines = {
-        std::string("Status   : ") + (api_.running() ? "RUNNING" : "STOPPED"),
-        "Base URL : " + api_.baseUrl(),
-        "API key  : " + api_.apiKey(),
-        "",
-        "OpenAI-compatible endpoint: POST /v1/chat/completions",
-        "Select a group with X-Router-Group or model: router/<group>.",
-        "GET /v1/models lists routing groups as router/<group> models.",
-        "stream=true is supported as buffered SSE; token-by-token streaming is not implemented yet.",
-        "For mixed groups use router.models.zai and router.models.antigravity for provider-specific models.",
-        "mixed-default contains API-capable backends only; consumer profiles remain manual."
-    };
-    showMessage("Local API", lines, !api_.running());
+    while (true) {
+        const int action = chooseOption(
+            "Local API",
+            {"View configuration", "Rotate local API key", "Back"},
+            std::string(api_.running() ? "RUNNING  " : "STOPPED  ") + api_.baseUrl());
+        if (action < 0 || action == 2) return;
+
+        if (action == 0) {
+            std::vector<std::string> lines = {
+                std::string("Status   : ") + (api_.running() ? "RUNNING" : "STOPPED"),
+                "Base URL : " + api_.baseUrl(),
+                "API key  : " + api_.apiKey(),
+                "",
+                "OpenAI-compatible endpoint: POST /v1/chat/completions",
+                "Select a group with X-Router-Group or model: router/<group>.",
+                "GET /v1/models lists executable routing groups as router/<group> models.",
+                "stream=true is supported as buffered SSE; token-by-token streaming is not implemented yet.",
+                "For mixed groups use router.models.zai and router.models.antigravity for provider-specific models.",
+                "mixed-default contains API-capable backends only; consumer profiles remain manual."
+            };
+            showMessage("Local API configuration", lines, !api_.running());
+            continue;
+        }
+
+        const int confirm = chooseOption(
+            "Rotate local API key",
+            {"Rotate key now", "Cancel"},
+            "The current local API key will stop working immediately.");
+        if (confirm == 0) {
+            const std::string replacement = api_.rotateApiKey();
+            showMessage(
+                "Local API key rotated",
+                {
+                    "New key: " + replacement,
+                    "Update clients that connect to " + api_.baseUrl() + "."
+                });
+        }
+    }
 }
 
 void TerminalApp::showBestAccount() {
