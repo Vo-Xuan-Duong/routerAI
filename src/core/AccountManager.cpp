@@ -2,6 +2,7 @@
 
 #include "providers/codex/CodexProvider.hpp"
 
+#include <algorithm>
 #include <iomanip>
 #include <sstream>
 #include <stdexcept>
