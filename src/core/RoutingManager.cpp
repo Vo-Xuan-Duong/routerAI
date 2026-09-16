@@ -37,6 +37,15 @@ bool eligible(const Account& account, std::int64_t nowUnix) {
            account.status == AccountStatus::Warning;
 }
 
+bool excluded(
+    const std::string& accountId,
+    const std::vector<std::string>& excludedAccountIds) {
+    return std::find(
+               excludedAccountIds.begin(),
+               excludedAccountIds.end(),
+               accountId) != excludedAccountIds.end();
+}
+
 int statusRank(AccountStatus status) {
     return status == AccountStatus::Ready ? 0 : 1;
 }
@@ -223,13 +232,23 @@ std::vector<RoutingCandidate> RoutingManager::candidatesFor(const RoutingGroup& 
 
 std::optional<RoutingDecision> RoutingManager::select(
     const std::string& groupId,
-    std::int64_t nowUnix) {
+    std::int64_t nowUnix,
+    const std::vector<std::string>& excludedAccountIds) {
     auto group = database_.findRoutingGroup(groupId);
     if (!group || !group->enabled) {
         return std::nullopt;
     }
 
     auto candidates = candidatesFor(*group);
+    candidates.erase(
+        std::remove_if(
+            candidates.begin(),
+            candidates.end(),
+            [&](const RoutingCandidate& candidate) {
+                return excluded(candidate.account.id, excludedAccountIds);
+            }),
+        candidates.end());
+
     std::optional<RoutingCandidate> selected;
 
     switch (group->strategy) {
@@ -260,6 +279,9 @@ std::optional<RoutingDecision> RoutingManager::select(
                 for (int offset = 0; offset < count; ++offset) {
                     const int index = (start + offset) % count;
                     const auto& wantedId = group->accountIds[static_cast<std::size_t>(index)];
+                    if (excluded(wantedId, excludedAccountIds)) {
+                        continue;
+                    }
                     const auto it = std::find_if(
                         candidates.begin(),
                         candidates.end(),
@@ -285,8 +307,23 @@ std::optional<RoutingDecision> RoutingManager::select(
     return RoutingDecision{*group, *selected};
 }
 
+std::optional<RoutingDecision> RoutingManager::select(
+    const std::string& groupId,
+    std::int64_t nowUnix) {
+    return select(groupId, nowUnix, {});
+}
+
+std::optional<RoutingDecision> RoutingManager::select(
+    const std::string& groupId,
+    const std::vector<std::string>& excludedAccountIds) {
+    return select(
+        groupId,
+        static_cast<std::int64_t>(std::time(nullptr)),
+        excludedAccountIds);
+}
+
 std::optional<RoutingDecision> RoutingManager::select(const std::string& groupId) {
-    return select(groupId, static_cast<std::int64_t>(std::time(nullptr)));
+    return select(groupId, static_cast<std::int64_t>(std::time(nullptr)), {});
 }
 
 void RoutingManager::recordFailure(
