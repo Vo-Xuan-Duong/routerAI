@@ -7,7 +7,9 @@
 
 #include <algorithm>
 #include <ctime>
+#include <optional>
 #include <stdexcept>
+#include <vector>
 
 namespace routerai {
 
@@ -132,6 +134,10 @@ bool retryableStatus(long status) {
     return status == 408 || status == 409 || status == 429 || status >= 500;
 }
 
+bool isRouterPseudoModel(const std::string& model) {
+    return model.starts_with("router/");
+}
+
 std::string providerModel(
     const nlohmann::json& request,
     const std::string& provider) {
@@ -145,7 +151,9 @@ std::string providerModel(
             }
         }
     }
-    return request.value("model", std::string{});
+
+    const std::string model = request.value("model", std::string{});
+    return isRouterPseudoModel(model) ? std::string{} : model;
 }
 
 }  // namespace
@@ -178,50 +186,55 @@ CompletionRouteResult CompletionRouter::chatCompletions(
         return jsonError(503, "Routing group is disabled: " + groupId);
     }
 
-    const std::size_t maxAttempts = std::max<std::size_t>(1, group->accountIds.size());
+    std::vector<std::string> attemptedAccountIds;
+    attemptedAccountIds.reserve(group->accountIds.size());
     std::string lastError = "No eligible provider account";
+    std::optional<std::string> requestConfigurationError;
 
-    for (std::size_t attempt = 0; attempt < maxAttempts; ++attempt) {
-        const auto decision = routing_.select(groupId);
+    while (attemptedAccountIds.size() < group->accountIds.size()) {
+        const auto decision = routing_.select(groupId, attemptedAccountIds);
         if (!decision) {
             break;
         }
 
         const Account account = decision->candidate.account;
+        attemptedAccountIds.push_back(account.id);
+
         try {
             if (account.provider == "zai") {
                 if (account.providerMode != "general-api") {
                     lastError = "Z.ai account is not configured for General API routing";
-                    routing_.recordFailure(
-                        account.id,
-                        lastError,
-                        static_cast<std::int64_t>(std::time(nullptr)));
                     continue;
                 }
                 if (account.credentialRef.empty()) {
                     lastError = "Z.ai credential is not configured";
-                    routing_.recordFailure(
-                        account.id,
-                        lastError,
-                        static_cast<std::int64_t>(std::time(nullptr)));
+                    Account updated = account;
+                    updated.status = AccountStatus::AuthExpired;
+                    updated.lastError = lastError;
+                    database_.updateAccount(updated);
                     continue;
                 }
                 const auto apiKey = credentials_.get(account.credentialRef);
                 if (!apiKey || apiKey->empty()) {
                     lastError = "Z.ai credential is unavailable";
-                    routing_.recordFailure(
-                        account.id,
-                        lastError,
-                        static_cast<std::int64_t>(std::time(nullptr)));
+                    Account updated = account;
+                    updated.status = AccountStatus::AuthExpired;
+                    updated.lastError = lastError;
+                    database_.updateAccount(updated);
+                    continue;
+                }
+
+                const std::string selectedModel = providerModel(request, "zai");
+                if (selectedModel.empty()) {
+                    lastError =
+                        "Z.ai requires a provider model. Set model to a Z.ai model or provide router.models.zai.";
+                    requestConfigurationError = lastError;
                     continue;
                 }
 
                 nlohmann::json outgoing = request;
-                const std::string selectedModel = providerModel(request, "zai");
                 outgoing.erase("router");
-                if (!selectedModel.empty()) {
-                    outgoing["model"] = selectedModel;
-                }
+                outgoing["model"] = selectedModel;
                 // The initial router transport buffers provider responses even
                 // when the client asks for SSE. LocalApiServer converts the
                 // completed response into an OpenAI-compatible event stream.
@@ -292,10 +305,6 @@ CompletionRouteResult CompletionRouter::chatCompletions(
             }
 
             lastError = "Provider execution is not implemented: " + account.provider;
-            routing_.recordFailure(
-                account.id,
-                lastError,
-                static_cast<std::int64_t>(std::time(nullptr)));
         } catch (const std::exception& exception) {
             lastError = exception.what();
             routing_.recordFailure(
@@ -305,6 +314,9 @@ CompletionRouteResult CompletionRouter::chatCompletions(
         }
     }
 
+    if (requestConfigurationError) {
+        return jsonError(400, *requestConfigurationError);
+    }
     return jsonError(503, lastError);
 }
 
