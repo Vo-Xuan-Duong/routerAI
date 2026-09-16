@@ -2,6 +2,7 @@
 
 #include "core/Account.hpp"
 #include "core/Provider.hpp"
+#include "core/Quota.hpp"
 #include "storage/SQLiteDatabase.hpp"
 
 #include <optional>
@@ -28,6 +29,7 @@ public:
     AccountLoginOutcome loginAccount(const std::string& accountId, bool useBrowser);
     AccountAuthOutcome refreshAccountStatus(const std::string& accountId);
     void refreshAllAccountStatuses();
+    QuotaSnapshot readQuota(const std::string& accountId) const;
 
     std::optional<Account> findAccount(const std::string& accountId) const;
     std::vector<Account> listAccounts() const;
