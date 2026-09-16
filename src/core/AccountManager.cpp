@@ -112,7 +112,10 @@ AccountAuthOutcome AccountManager::refreshAccountStatus(const std::string& accou
     AuthStatus auth = provider.authStatus(*account);
 
     if (auth.authenticated) {
-        account->status = AccountStatus::Ready;
+        if (account->status == AccountStatus::AuthExpired ||
+            account->status == AccountStatus::Error) {
+            account->status = AccountStatus::Ready;
+        }
         try {
             applyProfile(*account, provider.readProfile(*account));
         } catch (const std::exception& exception) {
