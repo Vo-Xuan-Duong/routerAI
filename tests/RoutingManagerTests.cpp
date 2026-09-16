@@ -74,6 +74,11 @@ int main() {
         const auto beforeFailure = routing.select("failover", 2000);
         require(beforeFailure && beforeFailure->candidate.account.id == "zai-01", "expected deterministic first account");
 
+        const auto excludeFirst = routing.select("failover", 2000, {"zai-01"});
+        require(excludeFirst && excludeFirst->candidate.account.id == "zai-02", "request-local exclusion must select the next account");
+        const auto excludeAll = routing.select("failover", 2000, {"zai-01", "zai-02"});
+        require(!excludeAll.has_value(), "excluding every group member must produce no selection");
+
         routing.recordFailure("zai-01", "test failure", 2000);
         const auto duringCooldown = routing.select("failover", 2001);
         require(duringCooldown && duringCooldown->candidate.account.id == "zai-02", "cooldown account must be skipped");
