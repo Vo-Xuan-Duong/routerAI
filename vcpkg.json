@@ -1,7 +1,8 @@
 {
   "name": "routerai",
-  "version-string": "0.3.0",
+  "version-string": "0.4.0",
   "dependencies": [
+    "ftxui",
     "sqlite3",
     "spdlog",
     "nlohmann-json"
