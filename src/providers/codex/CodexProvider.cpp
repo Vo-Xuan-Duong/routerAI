@@ -67,6 +67,18 @@ AuthStatus CodexProvider::authStatus(const Account& account) const {
     return AuthStatus{status.authenticated, status.detail};
 }
 
+AccountProfile CodexProvider::readProfile(const Account& account) const {
+    if (account.runtimeHome.empty()) {
+        throw std::runtime_error("Account has no Codex runtime home");
+    }
+    if (!cli_.isInstalled()) {
+        throw std::runtime_error("Codex CLI is not installed or is not available on PATH");
+    }
+
+    CodexAppServerClient client(account.runtimeHome);
+    return client.readAccountProfile();
+}
+
 QuotaSnapshot CodexProvider::readQuota(const Account& account) const {
     if (account.runtimeHome.empty()) {
         throw std::runtime_error("Account has no Codex runtime home");
