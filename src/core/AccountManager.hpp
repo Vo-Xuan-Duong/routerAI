@@ -4,6 +4,7 @@
 #include "core/AccountSelector.hpp"
 #include "core/Provider.hpp"
 #include "core/Quota.hpp"
+#include "security/CredentialStore.hpp"
 #include "storage/SQLiteDatabase.hpp"
 
 #include <optional>
@@ -24,10 +25,15 @@ struct AccountAuthOutcome {
 
 class AccountManager {
 public:
-    explicit AccountManager(SQLiteDatabase& database);
+    AccountManager(SQLiteDatabase& database, CredentialStore& credentials);
 
     Account addCodexAccount();
-    Account addZaiAccount();
+    Account addZaiAccount(const std::string& mode = "general-api");
+    AccountAuthOutcome configureZaiApiKey(
+        const std::string& accountId,
+        const std::string& apiKey,
+        const std::string& mode);
+
     AccountLoginOutcome loginAccount(const std::string& accountId, bool useBrowser);
     AccountAuthOutcome refreshAccountStatus(const std::string& accountId);
     void refreshAllAccountStatuses();
@@ -44,6 +50,7 @@ public:
 
 private:
     SQLiteDatabase& database_;
+    CredentialStore& credentials_;
 
     std::string nextAccountId(const std::string& provider) const;
 };
