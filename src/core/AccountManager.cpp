@@ -116,7 +116,7 @@ void AccountManager::refreshAllAccountStatuses() {
     }
 }
 
-QuotaSnapshot AccountManager::readQuota(const std::string& accountId) const {
+QuotaSnapshot AccountManager::readQuota(const std::string& accountId) {
     const auto account = database_.findAccount(accountId);
     if (!account) {
         throw std::runtime_error("Account not found: " + accountId);
@@ -128,7 +128,18 @@ QuotaSnapshot AccountManager::readQuota(const std::string& accountId) const {
     }
 
     CodexProvider provider;
-    return provider.readQuota(*account);
+    QuotaSnapshot snapshot = provider.readQuota(*account);
+    database_.recordQuotaSnapshot(accountId, snapshot);
+    return snapshot;
+}
+
+std::vector<QuotaHistoryEntry> AccountManager::listQuotaHistory(
+    const std::string& accountId,
+    std::size_t limit) const {
+    if (!database_.findAccount(accountId)) {
+        throw std::runtime_error("Account not found: " + accountId);
+    }
+    return database_.listQuotaHistory(accountId, limit);
 }
 
 std::optional<Account> AccountManager::findAccount(const std::string& accountId) const {
