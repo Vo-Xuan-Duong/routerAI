@@ -1,20 +1,21 @@
 # routerAI
 
-Interactive multi-provider AI account and runtime router written in C++20.
+Interactive multi-provider AI runtime/account manager and localhost router written in C++20.
 
-routerAI is designed to manage multiple AI providers, multiple accounts/projects per provider, provider-specific quota/health information, desktop profiles, and future routing groups behind one local OpenAI-compatible API.
-
-The project deliberately separates two different concepts:
+routerAI separates three concerns that should not be mixed together:
 
 ```text
-Desktop Profile Management
-    -> user chooses which desktop/account profile to activate
+Account / Provider Management
+    -> login, credentials, provider status and quota
 
 API / Runtime Routing
-    -> routerAI selects an eligible backend/account for a request
+    -> select a supported backend for a localhost API request
+
+Desktop Profile Management
+    -> explicit user-controlled desktop profile activation
 ```
 
-Desktop profile switching is intended for explicit user-controlled profile activation. Automatic request routing/failover is handled separately through provider runtimes and supported APIs.
+Current development version: **0.6.0**.
 
 ## Current providers
 
@@ -22,162 +23,72 @@ Desktop profile switching is intended for explicit user-controlled profile activ
 routerAI
 |
 +-- Codex
-|    +-- multiple isolated ChatGPT/Codex profiles
-|    +-- managed Codex runtime
+|    +-- multiple isolated CODEX_HOME profiles
+|    +-- routerAI-managed Codex runtime
+|    +-- ChatGPT/Codex login
 |    +-- account metadata
-|    +-- quota/rate-limit snapshots
+|    +-- quota/rate-limit history
+|    +-- Codex app-server request execution
 |
 +-- Google Antigravity
-|    +-- provider adapter planned/in progress
-|    +-- target: Antigravity developer/agent usage and quota
-|    +-- NOT Gemini Chat web quota
+|    +-- official `agy` CLI integration
+|    +-- active consumer session management
+|    +-- Antigravity developer/agent quota via `/usage`
+|    +-- optional official CLI installer action
 |
 +-- Z.ai
-     +-- provider scaffold
-     +-- Coding Plan endpoint
-     +-- General API endpoint
+     +-- General API credentials
+     +-- Coding Plan credentials kept as a separate mode
+     +-- OpenAI-compatible General API request execution
 ```
 
-The long-term routing model supports provider-local pools and mixed pools:
-
-```text
-Codex only
-Antigravity only
-Z.ai only
-Mixed
-```
-
-## Current scope
-
-- C++20 + CMake
-- FTXUI full-screen terminal interface
-- Arrow-key navigation with Enter/Esc/q controls
-- SQLite account persistence and additive schema migration
-- Provider abstraction
-- Deterministic account selection based on health, latest usage and priority
-- Persistent quota snapshot/window history for supported providers
-- Cross-platform child-process transport for Windows and POSIX
-- CTest coverage for SQLite migration/history and account selection
-
-### Codex
-
-- One isolated `CODEX_HOME` per routerAI Codex account
-- routerAI-managed Codex runtime bootstrap
-- Official Codex login/runtime flow
-- Codex app-server JSONL transport
-- account/profile retrieval
-- rate-limit/quota retrieval
-- per-account quota history
-
-### Google Antigravity
-
-The Antigravity provider is being designed around Antigravity developer/agent usage rather than Gemini Chat consumer quota.
-
-Planned capabilities:
-
-- account/project registration
-- provider health
-- supported quota/usage retrieval when exposed through a documented machine-readable interface
-- explicit desktop-account activation workflow
-- supported API/project routing
-
-routerAI will not depend on copying browser cookies, extracting private OAuth tokens from another application, or reverse-engineering undocumented private quota endpoints.
-
-### Z.ai
-
-Z.ai provider scaffolding is present.
-
-Documented endpoints currently represented by the provider:
-
-```text
-Coding Plan : https://api.z.ai/api/coding/paas/v4
-General API : https://api.z.ai/api/paas/v4
-```
-
-Planned capabilities:
-
-- secure API-key credential entry
-- credential validation
-- model discovery
-- request execution
-- provider health
-- participation in Z.ai-only and Mixed routing groups
-
-routerAI does not currently claim machine-readable Z.ai Coding Plan quota support because no documented quota endpoint has been integrated yet.
+The Antigravity quota target is Antigravity developer/agent usage. It is **not Gemini Chat web quota**.
 
 ## Terminal UI
 
-There are no management subcommands to memorize. Start the application:
+Start the application without management subcommands:
 
 ```bash
 router
 ```
 
-The current main screen is moving toward:
+Current main navigation:
 
 ```text
-routerAI 0.5.0
+routerAI 0.6.0
 
-Navigation
---------------------------------
 Dashboard
 Accounts
-Providers
 Add Provider
-Routing Groups        (planned)
-Desktop Profiles      (planned)
-Local API             (planned)
+Routing Groups
+Local API
+Best account
 Doctor
 Exit
 ```
 
-The currently implemented provider-add flow is provider-first:
+`Add Provider` is provider-first:
 
 ```text
 Add Provider
   |
   +-- Codex
-  |     +-- Add ChatGPT/Codex account
+  |     +-- create isolated account
+  |     +-- device-code or browser login
   |
   +-- Google Antigravity
-  |     +-- account/project adapter in progress
+  |     +-- install official CLI when missing
+  |     +-- login / verify active Google session
   |
   +-- Z.ai
-        +-- Coding Plan/API account scaffold
+        +-- General API
+        +-- Coding Plan
+        +-- secure API-key entry
 ```
 
-## Accounts
+## Codex
 
-Accounts are stored independently from provider runtimes.
-
-Example:
-
-```text
-Accounts
-
-codex-01         Codex        READY
-codex-02         Codex        WARNING
-antigravity-01   Antigravity  READY
-zai-01           Z.ai         READY
-```
-
-Each account has provider-specific capabilities. A Codex account can currently expose:
-
-```text
-Details
-Login
-Refresh
-Quota
-Quota history
-```
-
-Antigravity and Z.ai actions will be enabled as their provider adapters are completed.
-
-## Managed Codex runtime
-
-You do not need to install Codex CLI manually for routerAI.
-
-When a Codex operation requires a runtime and no usable runtime is available, routerAI can bootstrap a managed Codex runtime below:
+Each routerAI Codex account has an isolated `CODEX_HOME`:
 
 ```text
 .routerai/
@@ -193,15 +104,80 @@ When a Codex operation requires a runtime and no usable runtime is available, ro
         +-- codex-home/
 ```
 
-The executable/runtime is shared, while authentication/state remains isolated per routerAI account through separate `CODEX_HOME` directories.
+The Codex executable/runtime may be shared, while authentication and account state stay isolated.
 
-If a compatible `codex` executable already exists on `PATH`, routerAI can use it as a fallback.
+routerAI can bootstrap a managed Codex runtime when no compatible `codex` executable exists on `PATH`.
+
+Current Codex integration includes:
+
+- official Codex login/runtime flow
+- `account/read`
+- `account/rateLimits/read`
+- quota snapshot/history persistence
+- `thread/start`
+- `turn/start`
+- `item/agentMessage/delta`
+- `turn/completed`
+
+Codex consumer profiles are kept in an explicit/manual routing group rather than automatically pooled into mixed provider failover.
+
+## Google Antigravity
+
+The current Antigravity integration uses the official `agy` runtime rather than browser-session extraction.
+
+Implemented:
+
+- detect `agy`
+- optionally launch the official installer from the TUI
+- login / verify the active system-keyring session
+- read Antigravity `/usage`
+- normalize quota percentages into routerAI quota snapshots
+- persist quota history in SQLite
+
+The current consumer CLI model represents one active Antigravity system-keyring session per OS user. routerAI does not copy private OAuth tokens or rewrite keyring entries to simulate unsupported parallel consumer profiles.
+
+Future API/project-backed Antigravity support can participate in mixed routing when a documented provider interface is available for that credential type.
+
+## Z.ai
+
+Supported endpoint modes:
+
+```text
+General API : https://api.z.ai/api/paas/v4
+Coding Plan : https://api.z.ai/api/coding/paas/v4
+```
+
+Current implementation:
+
+- provider-first account creation
+- password-style API-key input in the terminal
+- credential reference stored in SQLite
+- credential secret stored outside SQLite
+- General API `/chat/completions` execution
+- Z.ai-only routing groups
+- participation of General API credentials in `mixed-default`
+
+Coding Plan credentials remain separate from the general-purpose mixed API pool because the Coding Plan endpoint is for coding scenarios rather than interchangeable general API traffic.
+
+routerAI does not currently claim machine-readable Z.ai Coding Plan quota support because no documented quota endpoint has been integrated.
+
+## Credential storage
+
+Provider secrets are not written into `router.db`.
+
+```text
+SQLite account row
+    -> credential_ref
+    -> CredentialStore
+```
+
+On Windows, `CredentialStore` protects credential files with Windows DPAPI.
+
+On POSIX systems, the current fallback stores the credential in a user-only file (`0600`) below `.routerai/credentials`; a native keyring backend is still planned.
 
 ## Quota and health
 
-Quota is normalized into provider-independent snapshots when the provider exposes supported usage information.
-
-Conceptually:
+Quota is normalized into provider-independent snapshots:
 
 ```text
 QuotaSnapshot
@@ -209,13 +185,13 @@ QuotaSnapshot
   +-- usage allowed
   +-- limit buckets
        +-- model/limit name
-       +-- window
+       +-- windows
             +-- used percent
-            +-- duration
-            +-- reset time
+            +-- duration when available
+            +-- reset time when available
 ```
 
-Current Codex health derivation is conservative:
+Codex health derivation remains separate from request transport failures:
 
 ```text
 ordinaryUsageAllowed = false
@@ -231,57 +207,28 @@ usage allowed below warning threshold
     -> READY
 ```
 
-Quota/history from one provider is not assumed to have the same window structure as another provider.
+Temporary request/network failures are tracked separately as:
 
-For Antigravity, the target is Antigravity developer/agent quota rather than Gemini Chat web quota.
+```text
+consecutiveFailures
+cooldownUntilUnix
+lastError
+```
+
+They do not overwrite quota/auth health status.
 
 ## Routing groups
 
-Routing Groups are the core of the future local API.
-
-A group contains eligible provider accounts/projects and a routing policy.
-
-Example:
+Default groups are persisted in SQLite:
 
 ```text
-Routing Group: codex-pool
-
-Members
-[x] codex-01
-[x] codex-02
-[x] codex-03
-
-Strategy
-Health First
-```
-
-Provider-local pools:
-
-```text
-codex-pool
-  +-- codex-01
-  +-- codex-02
-
-antigravity-pool
-  +-- antigravity-project-01
-  +-- antigravity-project-02
-
-zai-pool
-  +-- zai-01
-  +-- zai-02
-```
-
-Mixed pool:
-
-```text
+codex-default
+antigravity-default
+zai-default
 mixed-default
-  +-- codex-01
-  +-- codex-02
-  +-- antigravity-project-01
-  +-- zai-01
 ```
 
-Planned strategies:
+Available strategies in the routing core:
 
 ```text
 Health First
@@ -291,76 +238,130 @@ Round Robin
 Manual
 ```
 
-A request will eventually flow through:
+Failure cooldown uses bounded exponential backoff:
 
 ```text
-Client request
-    |
-    v
-Local API
-    |
-    v
-Routing Group
-    |
-    v
-Account / Project Selector
-    |
-    +-- enabled?
-    +-- authenticated / authorized?
-    +-- healthy?
-    +-- quota available?
-    +-- cooldown?
-    +-- priority?
-    |
-    v
-Selected provider backend
+30s -> 60s -> 120s -> 240s -> 480s -> max 15m
 ```
 
-Automatic failover belongs to this routing layer, not to desktop-account session manipulation.
+A successful request clears transport failure/cooldown state.
+
+### Routing boundary
+
+Automatic failover is intended for provider-supported API/project credentials.
+
+Current default behavior:
+
+```text
+codex-default
+    -> manual account selection
+
+antigravity-default
+    -> manual active consumer session
+
+zai-default
+    -> API routing strategies available
+
+mixed-default
+    -> Z.ai General API
+    -> future supported Antigravity API/project credentials
+    -> does not automatically pool Codex or Antigravity consumer subscriptions
+```
+
+This keeps desktop/consumer profile switching separate from API backend failover.
 
 ## Local OpenAI-compatible API
 
-The planned local API provides one local credential and hides provider/account selection from the client.
-
-Target architecture:
+routerAI starts a localhost-only API by default:
 
 ```text
-Client
-  |
-  | Authorization: Bearer <routerAI-local-key>
-  v
-127.0.0.1:9000/v1
-  |
-  v
-routerAI
-  |
-  +-- Codex routing group
-  +-- Antigravity routing group
-  +-- Z.ai routing group
-  +-- Mixed routing group
+http://127.0.0.1:9000/v1
 ```
 
-This will allow tools that understand an OpenAI-compatible endpoint to connect to one local router while routerAI performs supported provider/backend selection behind it.
+A local key is generated on first run and stored through `CredentialStore`.
+
+Implemented endpoints:
+
+```text
+GET  /health
+GET  /v1/models
+POST /v1/chat/completions
+```
+
+Authentication:
+
+```text
+Authorization: Bearer <routerAI-local-key>
+```
+
+Choose a routing group with one of the following:
+
+```text
+X-Router-Group: zai-default
+```
+
+or:
+
+```json
+{
+  "router": {
+    "group": "mixed-default"
+  }
+}
+```
+
+or use a routing-group model ID:
+
+```json
+{
+  "model": "router/mixed-default"
+}
+```
+
+For mixed groups, provider-specific model mapping can be supplied in the request:
+
+```json
+{
+  "model": "router/mixed-default",
+  "messages": [
+    {"role": "user", "content": "hello"}
+  ],
+  "router": {
+    "models": {
+      "zai": "glm-5.3",
+      "codex": "gpt-5.3-codex"
+    }
+  }
+}
+```
+
+### Streaming
+
+`stream=true` is accepted.
+
+The current 0.6 implementation uses **buffered SSE compatibility**: routerAI waits for the selected backend to complete, then emits OpenAI-style `chat.completion.chunk` events followed by `[DONE]`.
+
+True token-by-token streaming remains a follow-up improvement.
 
 ## Desktop Profile Manager
 
-Desktop profile management is a separate feature from API routing.
+Desktop profile management is intentionally separate from routing.
 
-Target UI:
+Target UX:
 
 ```text
 Desktop Profiles
 
 Codex Desktop
-  +-- Personal       ACTIVE
+  +-- Personal   ACTIVE
   +-- Work
 
 Antigravity
-  +-- Google A       ACTIVE
+  +-- Google A   ACTIVE
   +-- Google B
 ```
 
-The intended interaction is explicit:
+The intended action is explicit user-controlled activation, for example:
 
 ```text
 Desktop Profiles
@@ -369,93 +370,47 @@ Desktop Profiles
   -> Activate
 ```
 
-or:
-
-```text
-Desktop Profiles
-  -> Antigravity
-  -> Google B
-  -> Activate
-```
-
-routerAI may detect, launch, stop and re-open supported desktop applications as part of profile activation where a reliable mechanism exists.
-
-Important distinction:
-
-```text
-Manual Desktop Switching
-    user explicitly activates another desktop profile
-
-Automatic API Routing
-    routerAI automatically selects another supported backend/account
-```
-
-routerAI does not currently implement automatic consumer-desktop account cycling based on quota exhaustion. Desktop applications do not expose a stable cross-provider account-switch API that routerAI can rely on today.
-
-The project will prefer documented profile/runtime mechanisms and provider-supported login flows instead of modifying private application session databases, copying cookies, extracting credentials, or rewriting OS keyring entries.
-
-### Advanced desktop isolation
-
-A possible future Windows mode is stronger OS-level profile isolation:
-
-```text
-Desktop Profile A
-  -> isolated Windows user/profile
-  -> isolated credential store
-
-Desktop Profile B
-  -> isolated Windows user/profile
-  -> isolated credential store
-```
-
-This is intentionally considered an advanced mode because it is heavier than the default account/runtime isolation used by routerAI.
+routerAI does not currently automate quota-triggered consumer desktop account cycling. Where desktop applications do not expose a stable account-switch interface, the project will prefer explicit login/profile isolation rather than copying cookies, private tokens or application session databases.
 
 ## Architecture
 
 ```text
                          routerAI
                             |
-             +--------------+--------------+
-             |              |              |
-             v              v              v
-      TerminalApp     Desktop Profiles   Local API
-             |                             |
-             +-------------+---------------+
-                           |
-                           v
-                    AccountManager
-                           |
-          +----------------+----------------+
-          |                |                |
-          v                v                v
-   AccountSelector    Quota/Health     Routing Groups
-          |                                 |
-          +----------------+----------------+
-                           |
-                           v
-                    Provider abstraction
-                           |
-          +----------------+----------------+
-          |                |                |
-          v                v                v
-    CodexProvider   AntigravityProvider   ZaiProvider
-          |
-          +-- managed Codex runtime
-          +-- isolated CODEX_HOME
-          +-- app-server
+          +-----------------+-----------------+
+          |                 |                 |
+          v                 v                 v
+     TerminalApp       Local API       Desktop Profiles
+          |                 |              (planned)
+          +--------+--------+
+                   |
+                   v
+             AccountManager
+                   |
+          +--------+---------+
+          |                  |
+          v                  v
+     Quota/Health      RoutingManager
+                             |
+                       CompletionRouter
+                             |
+          +------------------+------------------+
+          |                  |                  |
+          v                  v                  v
+    CodexProvider    AntigravityProvider    ZaiProvider
+          |                  |                  |
+    app-server          official agy        General API
 ```
 
 ## Data layout
-
-Current local runtime layout is conceptually:
 
 ```text
 routerAI/
 +-- router.db
 +-- .routerai/
+    +-- credentials/
     +-- runtime/
     |   +-- codex/
-    |
     +-- accounts/
         +-- codex-01/
         |   +-- codex-home/
@@ -463,26 +418,24 @@ routerAI/
             +-- codex-home/
 ```
 
-Account metadata and quota history are stored in `router.db` by default.
-
-Provider runtime state lives below `.routerai/`.
-
-Local runtime data should not be committed to source control.
+Do not commit local runtime data or credential files to source control.
 
 ## Requirements
 
 - CMake 3.24+
 - C++20 compiler
 - vcpkg
-- terminal with ANSI/interactive input support
-- internet access when provider runtime installation/authentication requires it
+- ANSI/interactive terminal
+- internet access when provider install/login/API operations require it
 
-Dependencies managed through vcpkg:
+vcpkg dependencies:
 
 - FTXUI
 - SQLite3
 - spdlog
 - nlohmann/json
+- libcurl
+- cpp-httplib
 
 ## Build
 
@@ -501,7 +454,7 @@ build\router.exe
 
 Do not mix MinGW/GCC with the `x64-windows` MSVC vcpkg triplet.
 
-For day-to-day development after configuration, rebuilding normally only requires:
+After the first configure, normal development usually only needs:
 
 ```cmd
 cmake --build build -j 8
@@ -519,50 +472,66 @@ ctest --test-dir build -C Release --output-on-failure
 .\build\Release\router.exe
 ```
 
-## Development roadmap
+## Tests
+
+CTest currently covers:
+
+- SQLite schema migration and quota persistence
+- account selection
+- routing strategies
+- round-robin cursor persistence
+- cooldown/failure recovery
+- default routing-group boundaries
+
+## GitHub Actions
+
+CI is intentionally **not executed on every push**.
+
+The workflow currently runs on:
+
+```text
+workflow_dispatch
+pull_request
+```
+
+This prevents normal iterative commits from repeatedly consuming Actions minutes. Run the workflow manually when a development batch is ready for Windows/Linux verification, or let it run for a pull request.
+
+## Development status
 
 ```text
 [done] SQLite persistence and additive migration
 [done] Provider abstraction
 [done] Codex account isolation
 [done] Managed Codex runtime bootstrap
-[done] Codex account/profile retrieval
-[done] Codex quota history and health
-[done] Deterministic Codex account selection
-[done] Full-screen FTXUI terminal UI
+[done] Codex profile/quota integration
+[done] Codex app-server request execution
+[done] Full-screen FTXUI control plane
 [done] Provider-first Add Provider flow
-[done] Z.ai provider scaffold
+[done] Windows DPAPI credential protection
+[done] Z.ai General API adapter
+[done] Antigravity active-session + quota adapter
+[done] Routing-group persistence
+[done] Health/priority/least-used/round-robin/manual strategies
+[done] Failure cooldown state
+[done] API-credential backend failover
+[done] Local OpenAI-compatible chat/completions API
+[done] Buffered SSE compatibility
+[done] Manual/PR-only GitHub Actions workflow
 
-[next] Secure provider credential store
-[next] Z.ai credential validation + request adapter
-[next] Google Antigravity account/project adapter
-[next] Antigravity developer/agent quota integration where officially supported
-[next] Provider management screen
-[next] Routing-group persistence and TUI
-[next] Cooldown and failure tracking
-[next] Automatic backend failover
-[next] Local OpenAI-compatible API
+[next] Native POSIX keyring credential backend
+[next] Z.ai model discovery / credential validation
+[next] Antigravity API/project credential adapter when supported
+[next] True provider streaming
+[next] Local API integration tests
+[next] Custom routing-group membership editor
 [next] Desktop Profile Manager
-[next] Codex Desktop profile activation support where reliable
-[next] Antigravity desktop profile activation support where reliable
+[next] Supported Codex Desktop profile activation
+[next] Supported Antigravity desktop profile activation
 [next] Optional web/desktop management UI
 ```
 
 ## Design principles
 
-routerAI aims to keep provider integrations explicit and replaceable:
+Provider-specific authentication, quota and request behavior belongs inside provider adapters.
 
-```text
-UI / Local API
-      |
-      v
-Provider interface
-      |
-      +-- Codex
-      +-- Antigravity
-      +-- Z.ai
-```
-
-Provider-specific authentication, quota and request behavior should remain inside each provider adapter.
-
-The router should prefer documented provider interfaces and supported credential/runtime mechanisms. It should not depend on browser-session scraping, credential extraction from official clients, private endpoint reverse engineering, CAPTCHA/2FA bypass, or spoofing first-party applications.
+routerAI prefers documented provider interfaces and supported credential/runtime mechanisms. It should not depend on browser-session scraping, credential extraction from official clients, private endpoint reverse engineering, CAPTCHA/2FA bypass, or spoofing first-party applications.
