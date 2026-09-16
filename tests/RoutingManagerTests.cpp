@@ -99,18 +99,57 @@ int main() {
         routing.syncDefaultGroups();
 
         const auto codex = database.findRoutingGroup("codex-default");
-        const auto antigravity = database.findRoutingGroup("antigravity-default");
+        const auto antigravityConsumer = database.findRoutingGroup("antigravity-default");
+        const auto antigravityApi = database.findRoutingGroup("antigravity-api-default");
+        const auto zai = database.findRoutingGroup("zai-default");
         const auto mixed = database.findRoutingGroup("mixed-default");
         require(codex.has_value(), "codex default group missing");
-        require(antigravity.has_value(), "antigravity default group missing");
+        require(antigravityConsumer.has_value(), "antigravity consumer group missing");
+        require(antigravityApi.has_value(), "antigravity API group missing");
+        require(zai.has_value(), "Z.ai default group missing");
         require(mixed.has_value(), "mixed default group missing");
+
         require(codex->strategy == routerai::RoutingStrategy::Manual, "Codex consumer routing must stay manual");
-        require(antigravity->strategy == routerai::RoutingStrategy::Manual, "Antigravity consumer routing must stay manual");
+        require(antigravityConsumer->strategy == routerai::RoutingStrategy::Manual, "Antigravity consumer routing must stay manual");
+        require(contains(codex->accountIds, "codex-01"), "Codex consumer must be available for explicit manual selection");
+        require(contains(antigravityConsumer->accountIds, "antigravity-01"), "Antigravity consumer must stay in the manual consumer group");
+        require(!contains(antigravityConsumer->accountIds, "antigravity-api-01"), "Antigravity API project must not be mixed into consumer group");
+        require(contains(antigravityApi->accountIds, "antigravity-api-01"), "Antigravity API project must enter its API pool");
+        require(!contains(antigravityApi->accountIds, "antigravity-01"), "Consumer session must not enter Antigravity API pool");
+        require(contains(zai->accountIds, "zai-01"), "Z.ai General API must enter Z.ai automatic pool");
+        require(!contains(zai->accountIds, "zai-coding-01"), "Z.ai Coding Plan must not enter General API automatic pool");
+
         require(!contains(mixed->accountIds, "codex-01"), "Codex consumer account must not enter mixed API pool");
         require(!contains(mixed->accountIds, "antigravity-01"), "Antigravity consumer account must not enter mixed API pool");
         require(!contains(mixed->accountIds, "zai-coding-01"), "Z.ai Coding Plan must not enter general mixed API pool");
         require(contains(mixed->accountIds, "zai-01"), "Z.ai General API account should enter mixed API pool");
         require(contains(mixed->accountIds, "antigravity-api-01"), "Antigravity API project should enter mixed API pool");
+
+        require(routing.groupSupportsCompletions(*codex), "manual Codex group should be executable through the Codex runtime");
+        require(!routing.groupSupportsCompletions(*antigravityConsumer), "Antigravity consumer quota/profile group must not be advertised as a completion backend");
+        require(routing.groupSupportsCompletions(*antigravityApi), "Antigravity API pool must be executable");
+        require(routing.groupSupportsCompletions(*zai), "Z.ai API pool must be executable");
+
+        routerai::RoutingGroup invalidAutomatic;
+        invalidAutomatic.id = "invalid-consumer-auto";
+        invalidAutomatic.displayName = "Invalid consumer auto pool";
+        invalidAutomatic.strategy = routerai::RoutingStrategy::RoundRobin;
+        invalidAutomatic.accountIds = {"codex-01"};
+        bool rejectedConsumerAuto = false;
+        try {
+            routing.saveGroup(invalidAutomatic);
+        } catch (const std::exception&) {
+            rejectedConsumerAuto = true;
+        }
+        require(rejectedConsumerAuto, "automatic custom groups must reject consumer-only accounts");
+
+        routerai::RoutingGroup validMixedApi;
+        validMixedApi.id = "custom-api";
+        validMixedApi.displayName = "Custom API";
+        validMixedApi.strategy = routerai::RoutingStrategy::RoundRobin;
+        validMixedApi.accountIds = {"zai-01", "antigravity-api-01"};
+        routing.saveGroup(validMixedApi);
+        require(database.findRoutingGroup("custom-api").has_value(), "automatic custom API group should persist");
 
         std::cout << "RoutingManagerTests: OK\n";
     } catch (const std::exception& exception) {
