@@ -25,25 +25,36 @@ void printAccounts(const std::vector<routerai::Account>& accounts) {
     std::cout << std::left
               << std::setw(14) << "ID"
               << std::setw(12) << "PROVIDER"
+              << std::setw(12) << "PLAN"
               << std::setw(18) << "STATUS"
               << std::setw(10) << "PRIORITY"
-              << "NAME\n";
+              << "ACCOUNT\n";
 
-    std::cout << std::string(72, '-') << '\n';
+    std::cout << std::string(96, '-') << '\n';
 
     for (const auto& account : accounts) {
+        const std::string identity = !account.email.empty()
+            ? account.email
+            : account.displayName;
         std::cout << std::left
                   << std::setw(14) << account.id
                   << std::setw(12) << account.provider
+                  << std::setw(12) << (account.planType.empty() ? "-" : account.planType)
                   << std::setw(18) << routerai::toString(account.status)
                   << std::setw(10) << account.priority
-                  << account.displayName << '\n';
+                  << identity << '\n';
     }
 }
 
 void printAccount(const routerai::Account& account) {
     std::cout << "ID           : " << account.id << '\n';
     std::cout << "Provider     : " << account.provider << '\n';
+    if (!account.email.empty()) {
+        std::cout << "Email        : " << account.email << '\n';
+    }
+    if (!account.planType.empty()) {
+        std::cout << "Plan         : " << account.planType << '\n';
+    }
     std::cout << "Status       : " << routerai::toString(account.status) << '\n';
     std::cout << "Priority     : " << account.priority << '\n';
     std::cout << "Runtime home : " << account.runtimeHome << '\n';
@@ -85,6 +96,12 @@ void printQuota(
     const routerai::QuotaSnapshot& snapshot) {
     std::cout << "Account      : " << account.id << '\n';
     std::cout << "Provider     : " << account.provider << '\n';
+    if (!account.email.empty()) {
+        std::cout << "Email        : " << account.email << '\n';
+    }
+    if (!account.planType.empty()) {
+        std::cout << "Plan         : " << account.planType << '\n';
+    }
 
     if (!snapshot.accountId.empty()) {
         std::cout << "Provider ID  : " << snapshot.accountId << '\n';
@@ -204,7 +221,10 @@ int main(int argc, char** argv) {
 
         bool refreshList = false;
         auto* list = account->add_subcommand("list", "List configured accounts");
-        list->add_flag("--refresh", refreshList, "Refresh provider authentication status first");
+        list->add_flag(
+            "--refresh",
+            refreshList,
+            "Refresh authentication status, email, and plan metadata first");
         list->callback([&]() {
             if (refreshList) {
                 accounts.refreshAllAccountStatuses();
@@ -233,8 +253,9 @@ int main(int argc, char** argv) {
             std::cout << "\nStarting Codex authentication...\n";
             const auto outcome = accounts.loginAccount(created.id, addWithBrowser);
             std::cout << (outcome.result.success ? "Authentication successful.\n" : "Authentication failed.\n");
+            printAccount(outcome.account);
             if (!outcome.result.detail.empty()) {
-                std::cout << outcome.result.detail << '\n';
+                std::cout << "Detail       : " << outcome.result.detail << '\n';
             }
         });
 
@@ -253,7 +274,7 @@ int main(int argc, char** argv) {
         });
 
         std::string statusAccountId;
-        auto* accountStatus = account->add_subcommand("status", "Refresh and show account authentication status");
+        auto* accountStatus = account->add_subcommand("status", "Refresh and show account authentication status and profile");
         accountStatus->add_option("account-id", statusAccountId, "Account ID, for example codex-01")->required();
         accountStatus->callback([&]() {
             const auto outcome = accounts.refreshAccountStatus(statusAccountId);
