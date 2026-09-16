@@ -13,6 +13,10 @@ std::string resolveRoutingGroup(
     const std::string& headerGroup,
     const std::string& fallbackGroup = "mixed-default");
 
+std::string resolveProviderModelOverride(
+    const nlohmann::json& request,
+    const std::string& provider);
+
 std::string resolveProviderModel(
     const nlohmann::json& request,
     const std::string& provider);
