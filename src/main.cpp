@@ -28,7 +28,7 @@ int main() {
             spdlog::info("Local API listening at {}", api.baseUrl());
         }
 
-        routerai::TerminalApp app(database, accounts);
+        routerai::TerminalApp app(database, accounts, routing, api);
         const int exitCode = app.run();
         api.stop();
         return exitCode;
