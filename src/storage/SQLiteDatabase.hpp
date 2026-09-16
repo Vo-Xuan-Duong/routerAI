@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/Account.hpp"
+#include "core/Quota.hpp"
 
 #include <cstddef>
 #include <optional>
@@ -25,6 +26,13 @@ public:
     std::optional<Account> findAccount(const std::string& accountId) const;
     std::vector<Account> listAccounts() const;
     std::size_t countAccounts() const;
+
+    void recordQuotaSnapshot(
+        const std::string& accountId,
+        const QuotaSnapshot& snapshot);
+    std::vector<QuotaHistoryEntry> listQuotaHistory(
+        const std::string& accountId,
+        std::size_t limit = 50) const;
 
     const std::string& path() const noexcept { return path_; }
 
