@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+#include <optional>
 #include <string>
 
 namespace routerai {
@@ -35,6 +37,9 @@ struct Account {
     AccountStatus status{AccountStatus::Ready};
     int priority{100};
     bool enabled{true};
+    int consecutiveFailures{0};
+    std::optional<std::int64_t> cooldownUntilUnix;
+    std::string lastError;
 };
 
 }  // namespace routerai
