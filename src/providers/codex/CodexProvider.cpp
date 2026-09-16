@@ -1,6 +1,9 @@
 #include "providers/codex/CodexProvider.hpp"
 
+#include "providers/codex/CodexAppServerClient.hpp"
+
 #include <filesystem>
+#include <stdexcept>
 
 namespace routerai {
 
@@ -62,6 +65,24 @@ AuthStatus CodexProvider::authStatus(const Account& account) const {
 
     const auto status = cli_.status(account.runtimeHome);
     return AuthStatus{status.authenticated, status.detail};
+}
+
+QuotaSnapshot CodexProvider::readQuota(const Account& account) const {
+    if (account.runtimeHome.empty()) {
+        throw std::runtime_error("Account has no Codex runtime home");
+    }
+    if (!cli_.isInstalled()) {
+        throw std::runtime_error("Codex CLI is not installed or is not available on PATH");
+    }
+
+    const auto auth = cli_.status(account.runtimeHome);
+    if (!auth.authenticated) {
+        throw std::runtime_error(
+            auth.detail.empty() ? "Codex account is not authenticated" : auth.detail);
+    }
+
+    CodexAppServerClient client(account.runtimeHome);
+    return client.readRateLimits();
 }
 
 bool CodexProvider::cliInstalled() const {
