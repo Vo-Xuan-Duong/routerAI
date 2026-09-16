@@ -23,6 +23,7 @@ public:
     void saveGroup(const RoutingGroup& group);
     std::optional<RoutingGroup> findGroup(const std::string& groupId) const;
     std::vector<RoutingGroup> listGroups() const;
+    bool groupSupportsCompletions(const RoutingGroup& group) const;
     void syncDefaultGroups();
 
     std::optional<RoutingDecision> select(
