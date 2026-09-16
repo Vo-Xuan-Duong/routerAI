@@ -29,6 +29,7 @@ struct Account {
     std::string id;
     std::string provider;
     std::string displayName;
+    std::string runtimeHome;
     AccountStatus status{AccountStatus::Ready};
     int priority{100};
     bool enabled{true};
