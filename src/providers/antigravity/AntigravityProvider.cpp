@@ -1,7 +1,5 @@
 #include "providers/antigravity/AntigravityProvider.hpp"
 
-#include <stdexcept>
-
 namespace routerai {
 
 std::string AntigravityProvider::name() const {
@@ -27,7 +25,7 @@ LoginResult AntigravityProvider::login(Account& account, const LoginOptions&) co
         account.status = AccountStatus::Error;
         return LoginResult{
             false,
-            "Antigravity CLI (`agy`) is not installed. Use the official Google installer first."
+            "Antigravity CLI (`agy`) is not installed. Use Add Provider to run the official Google installer."
         };
     }
 
@@ -67,6 +65,10 @@ bool AntigravityProvider::cliInstalled() const {
 
 std::string AntigravityProvider::cliVersion() const {
     return cli_.version();
+}
+
+int AntigravityProvider::installCli() const {
+    return cli_.install();
 }
 
 bool AntigravityProvider::supportsUnifiedRouting(const Account&) {
