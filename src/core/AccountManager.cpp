@@ -1,5 +1,6 @@
 #include "core/AccountManager.hpp"
 
+#include "providers/antigravity/AntigravityProvider.hpp"
 #include "providers/codex/CodexProvider.hpp"
 #include "providers/zai/ZaiProvider.hpp"
 
@@ -86,6 +87,19 @@ Account AccountManager::addCodexAccount() {
     return account;
 }
 
+Account AccountManager::addAntigravityAccount() {
+    for (const auto& account : database_.listAccounts()) {
+        if (account.provider == "antigravity" && account.providerMode == "consumer-cli") {
+            return account;
+        }
+    }
+
+    AntigravityProvider provider;
+    Account account = provider.createPlaceholderAccount(nextAccountId(provider.name()));
+    database_.insertAccount(account);
+    return account;
+}
+
 Account AccountManager::addZaiAccount(const std::string& mode) {
     ZaiProvider provider;
     Account account = provider.createAccount(nextAccountId(provider.name()), mode);
@@ -136,24 +150,28 @@ AccountLoginOutcome AccountManager::loginAccount(
         throw std::runtime_error("Account not found: " + accountId);
     }
 
-    if (account->provider != "codex") {
+    LoginResult result;
+    if (account->provider == "codex") {
+        CodexProvider provider;
+        result = provider.login(*account, LoginOptions{useBrowser});
+        if (result.success) {
+            try {
+                applyProfile(*account, provider.readProfile(*account));
+            } catch (const std::exception& exception) {
+                appendDetail(
+                    result.detail,
+                    "profile sync warning: " + std::string(exception.what()));
+            }
+        }
+    } else if (account->provider == "antigravity") {
+        AntigravityProvider provider;
+        result = provider.login(*account, LoginOptions{});
+        if (result.success) {
+            applyProfile(*account, provider.readProfile(*account));
+        }
+    } else {
         throw std::runtime_error(
             "Interactive login is not implemented for provider: " + account->provider);
-    }
-
-    CodexProvider provider;
-    LoginResult result = provider.login(
-        *account,
-        LoginOptions{useBrowser});
-
-    if (result.success) {
-        try {
-            applyProfile(*account, provider.readProfile(*account));
-        } catch (const std::exception& exception) {
-            appendDetail(
-                result.detail,
-                "profile sync warning: " + std::string(exception.what()));
-        }
     }
 
     database_.updateAccount(*account);
@@ -175,34 +193,47 @@ AccountAuthOutcome AccountManager::refreshAccountStatus(const std::string& accou
             *account,
             AuthStatus{
                 configured,
-                configured ? "Z.ai credential is available" : "Z.ai API key is not configured"}}
-        ;
+                configured ? "Z.ai credential is available" : "Z.ai API key is not configured"}};
     }
 
-    if (account->provider != "codex") {
+    AuthStatus auth;
+    if (account->provider == "codex") {
+        CodexProvider provider;
+        auth = provider.authStatus(*account);
+        if (auth.authenticated) {
+            if (account->status == AccountStatus::AuthExpired ||
+                account->status == AccountStatus::Error) {
+                account->status = AccountStatus::Ready;
+            }
+            try {
+                applyProfile(*account, provider.readProfile(*account));
+            } catch (const std::exception& exception) {
+                appendDetail(
+                    auth.detail,
+                    "profile sync warning: " + std::string(exception.what()));
+            }
+        }
+    } else if (account->provider == "antigravity") {
+        AntigravityProvider provider;
+        auth = provider.authStatus(*account);
+        if (auth.authenticated) {
+            if (account->status == AccountStatus::AuthExpired ||
+                account->status == AccountStatus::Error) {
+                account->status = AccountStatus::Ready;
+            }
+            applyProfile(*account, provider.readProfile(*account));
+        }
+    } else {
         throw std::runtime_error(
             "Status refresh is not implemented for provider: " + account->provider);
     }
 
-    CodexProvider provider;
-    AuthStatus auth = provider.authStatus(*account);
-
-    if (auth.authenticated) {
-        if (account->status == AccountStatus::AuthExpired ||
-            account->status == AccountStatus::Error) {
-            account->status = AccountStatus::Ready;
+    if (!auth.authenticated) {
+        if (auth.detail.find("not installed") != std::string::npos) {
+            account->status = AccountStatus::Error;
+        } else {
+            account->status = AccountStatus::AuthExpired;
         }
-        try {
-            applyProfile(*account, provider.readProfile(*account));
-        } catch (const std::exception& exception) {
-            appendDetail(
-                auth.detail,
-                "profile sync warning: " + std::string(exception.what()));
-        }
-    } else if (auth.detail.find("not installed") != std::string::npos) {
-        account->status = AccountStatus::Error;
-    } else {
-        account->status = AccountStatus::AuthExpired;
     }
 
     database_.updateAccount(*account);
@@ -212,7 +243,9 @@ AccountAuthOutcome AccountManager::refreshAccountStatus(const std::string& accou
 void AccountManager::refreshAllAccountStatuses() {
     const auto accounts = database_.listAccounts();
     for (const auto& account : accounts) {
-        if (account.provider == "codex" || account.provider == "zai") {
+        if (account.provider == "codex" ||
+            account.provider == "antigravity" ||
+            account.provider == "zai") {
             refreshAccountStatus(account.id);
         }
     }
@@ -224,13 +257,21 @@ QuotaSnapshot AccountManager::readQuota(const std::string& accountId) {
         throw std::runtime_error("Account not found: " + accountId);
     }
 
-    if (account->provider != "codex") {
+    QuotaSnapshot snapshot;
+    if (account->provider == "codex") {
+        CodexProvider provider;
+        snapshot = provider.readQuota(*account);
+    } else if (account->provider == "antigravity") {
+        AntigravityProvider provider;
+        snapshot = provider.readQuota(*account);
+    } else if (account->provider == "zai") {
+        ZaiProvider provider;
+        snapshot = provider.readQuota(*account);
+    } else {
         throw std::runtime_error(
             "Quota reads are not implemented for provider: " + account->provider);
     }
 
-    CodexProvider provider;
-    QuotaSnapshot snapshot = provider.readQuota(*account);
     database_.recordQuotaSnapshot(accountId, snapshot);
 
     if (const auto derivedStatus = statusFromQuota(snapshot)) {
