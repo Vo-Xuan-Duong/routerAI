@@ -17,6 +17,7 @@ class AntigravityCli {
 public:
     bool isInstalled() const;
     std::string version() const;
+    int install() const;
     int login() const;
     AntigravityCliStatus status() const;
     QuotaSnapshot readQuota() const;
