@@ -10,6 +10,7 @@
 #include <ctime>
 #include <optional>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 namespace routerai {
@@ -217,6 +218,12 @@ std::int64_t usageValue(
     return value->get<std::int64_t>();
 }
 
+bool interactionHasUsableResult(const std::string& status) {
+    return status == "completed" ||
+           status == "incomplete" ||
+           status == "budget_exceeded";
+}
+
 }  // namespace
 
 CompletionRouter::CompletionRouter(
@@ -421,7 +428,7 @@ CompletionRouteResult CompletionRouter::chatCompletions(
                 const auto interaction = nlohmann::json::parse(response.body);
                 const std::string interactionStatus =
                     interaction.value("status", std::string{});
-                if (interactionStatus != "completed" && interactionStatus != "incomplete") {
+                if (!interactionHasUsableResult(interactionStatus)) {
                     lastError = "Antigravity interaction finished with status: " + interactionStatus;
                     routing_.recordFailure(
                         account.id,
@@ -433,11 +440,14 @@ CompletionRouteResult CompletionRouter::chatCompletions(
                 const std::string text = interactionOutputText(interaction);
                 if (text.empty()) {
                     lastError = "Antigravity interaction returned no text output";
-                    routing_.recordFailure(
-                        account.id,
-                        lastError,
-                        static_cast<std::int64_t>(std::time(nullptr)));
-                    continue;
+                    if (interactionStatus == "completed") {
+                        routing_.recordFailure(
+                            account.id,
+                            lastError,
+                            static_cast<std::int64_t>(std::time(nullptr)));
+                        continue;
+                    }
+                    return jsonError(422, lastError);
                 }
 
                 routing_.recordSuccess(account.id);
@@ -448,7 +458,7 @@ CompletionRouteResult CompletionRouter::chatCompletions(
                         : modelOverride);
                 const std::string interactionId = interaction.value("id", std::string{});
                 const std::string finishReason =
-                    interactionStatus == "incomplete" ? "length" : "stop";
+                    interactionStatus == "completed" ? "stop" : "length";
                 return CompletionRouteResult{
                     200,
                     openAiTextResponse(
