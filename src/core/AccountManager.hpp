@@ -28,6 +28,7 @@ public:
     AccountManager(SQLiteDatabase& database, CredentialStore& credentials);
 
     Account addCodexAccount();
+    Account addAntigravityAccount();
     Account addZaiAccount(const std::string& mode = "general-api");
     AccountAuthOutcome configureZaiApiKey(
         const std::string& accountId,
