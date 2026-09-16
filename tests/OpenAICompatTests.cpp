@@ -27,7 +27,7 @@ int main() {
             {"router",
              {
                  {"group", "zai-default"},
-                 {"models", {{"zai", "glm-5.2"}, {"codex", "gpt-5"}}},
+                 {"models", {{"zai", "glm-5.2"}, {"codex", "gpt-5"}, {"antigravity", "gemini-3.5-flash"}}},
              }},
         };
 
@@ -38,6 +38,9 @@ int main() {
         require(
             resolveRoutingGroup(routed, "") == "zai-default",
             "router.group must be used when there is no header group");
+        require(
+            resolveProviderModelOverride(routed, "antigravity") == "gemini-3.5-flash",
+            "explicit Antigravity model override mismatch");
         require(
             resolveProviderModel(routed, "zai") == "glm-5.2",
             "provider model override must win over router pseudo-model");
@@ -55,11 +58,17 @@ int main() {
         require(
             resolveProviderModel(modelSelected, "codex").empty(),
             "routing pseudo-model must resolve to no provider model");
+        require(
+            resolveProviderModelOverride(modelSelected, "codex").empty(),
+            "a routing pseudo-model must not appear as an explicit provider override");
 
         const json directProviderModel = {{"model", "glm-5.2"}};
         require(
             resolveProviderModel(directProviderModel, "zai") == "glm-5.2",
             "a real model name must pass through to the provider");
+        require(
+            resolveProviderModelOverride(directProviderModel, "zai").empty(),
+            "a direct model name is not a provider-specific override");
         require(
             resolveRoutingGroup(directProviderModel, "") == "mixed-default",
             "normal model names must use the fallback routing group");
