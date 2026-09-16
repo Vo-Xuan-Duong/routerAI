@@ -16,10 +16,13 @@ The project manages AI provider accounts as isolated local runtime profiles. The
 - Codex `account/rateLimits/read` quota retrieval
 - Persistent quota snapshot/window history in SQLite
 - Account health status derived from authoritative quota permission plus high-usage warning thresholds
+- Deterministic local account selection based on eligibility, health, latest quota usage and priority
 - Cross-platform child-process transport for Windows and POSIX
+- CTest coverage for SQLite migration/history and account selection
 - CLI commands:
   - `router status`
   - `router doctor`
+  - `router select [--provider codex]`
   - `router quota [account-id]`
   - `router quota-history <account-id> [--limit N]`
   - `router account list [--refresh]`
@@ -34,6 +37,11 @@ router CLI
     |
     v
 AccountManager
+    |
+    +-- AccountSelector
+    |     +-- READY before WARNING
+    |     +-- lower known usage first
+    |     +-- higher priority as tie-break
     |
     +-- SQLite account metadata
     +-- SQLite quota snapshots/windows
@@ -85,9 +93,10 @@ cmake -S . -B build \
   -DCMAKE_TOOLCHAIN_FILE=/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake
 
 cmake --build build --config Release
+ctest --test-dir build --output-on-failure
 ```
 
-On Windows/Visual Studio, the executable is typically under `build/Release/router.exe`.
+On Windows/Visual Studio, the executable is typically under `build/Release/router.exe`; use `ctest --test-dir build -C Release --output-on-failure` for tests.
 
 ## Usage
 
@@ -133,7 +142,7 @@ Example list shape:
 ID            PROVIDER    PLAN        STATUS            PRIORITY  ACCOUNT
 ------------------------------------------------------------------------------------------------
 codex-01      codex       plus        READY             100       account1@example.com
-codex-02      codex       pro         READY             100       account2@example.com
+codex-02      codex       pro         READY              90       account2@example.com
 ```
 
 Read quota for one account:
@@ -155,6 +164,15 @@ router quota-history codex-01
 router quota-history codex-01 --limit 100
 ```
 
+Select the best locally eligible account from current persisted health data:
+
+```bash
+router select
+router select --provider codex
+```
+
+The current selector excludes disabled, `LIMITED`, `AUTH_EXPIRED`, `ERROR` and `DISABLED` accounts. Among eligible accounts it prefers `READY` over `WARNING`, then accounts with known quota data over unknown data, then lower usage in the newest quota snapshot, then higher configured priority, then account ID for a deterministic final tie-break.
+
 Quota output is derived from Codex app-server rate-limit buckets and can contain multiple windows. routerAI intentionally does not hard-code assumptions such as exactly one 5-hour and one weekly window.
 
 Example shape:
@@ -172,7 +190,7 @@ Plan         : plus
   secondary used 18.0% | remaining 82.0% | window 7d | reset 2026-09-21 09:00:00
 ```
 
-Quota-derived account status currently follows a conservative rule: an explicit backend `ordinaryUsageAllowed=false` marks the account `LIMITED`; when usage is explicitly allowed, a reached signal or any window at 90%+ marks it `WARNING`; otherwise it is `READY`. If the backend does not provide the permission field, routerAI preserves the existing status rather than inferring recovery from percentages.
+Quota-derived account status follows a conservative rule: an explicit backend `ordinaryUsageAllowed=false` marks the account `LIMITED`; when usage is explicitly allowed, a reached signal or any window at 90%+ marks it `WARNING`; otherwise it is `READY`. If the backend does not provide the permission field, routerAI preserves the existing status rather than inferring recovery from percentages.
 
 Each Codex account gets its own runtime directory:
 
@@ -185,7 +203,7 @@ Each Codex account gets its own runtime directory:
         └── codex-home/
 ```
 
-This isolation is the basis for multi-account routing later: each worker can run Codex with the matching `CODEX_HOME` without routerAI copying credentials between accounts.
+This isolation lets future workers launch Codex with the selected account's `CODEX_HOME` without routerAI copying credentials between accounts.
 
 ## Data
 
@@ -197,9 +215,10 @@ Account metadata and quota history are stored in `router.db` by default. Existin
 2. Codex account isolation + official CLI authentication - done
 3. Codex app-server quota retrieval - done
 4. Account identity and plan metadata sync - done
-5. Quota history + basic account health status - implemented
-6. Persistent Codex worker pool and active health monitoring - next
-7. Multi-account selection, cooldown and failover
-8. OpenAI-compatible local API
-9. Additional providers
-10. Web/desktop management UI
+5. Quota history + basic account health status - done
+6. Deterministic multi-account selection - implemented
+7. Cooldown, failure tracking and failover - next
+8. Persistent Codex worker pool / request execution
+9. OpenAI-compatible local API
+10. Additional providers
+11. Web/desktop management UI
