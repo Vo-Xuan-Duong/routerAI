@@ -9,6 +9,30 @@
 
 namespace routerai {
 
+namespace {
+
+void applyProfile(Account& account, const AccountProfile& profile) {
+    if (!profile.email.empty()) {
+        account.email = profile.email;
+        account.displayName = profile.email;
+    }
+    if (!profile.planType.empty()) {
+        account.planType = profile.planType;
+    }
+}
+
+void appendDetail(std::string& detail, const std::string& extra) {
+    if (extra.empty()) {
+        return;
+    }
+    if (!detail.empty()) {
+        detail += " | ";
+    }
+    detail += extra;
+}
+
+}  // namespace
+
 AccountManager::AccountManager(SQLiteDatabase& database) : database_(database) {}
 
 Account AccountManager::addCodexAccount() {
@@ -32,9 +56,19 @@ AccountLoginOutcome AccountManager::loginAccount(
     }
 
     CodexProvider provider;
-    const LoginResult result = provider.login(
+    LoginResult result = provider.login(
         *account,
         LoginOptions{useBrowser});
+
+    if (result.success) {
+        try {
+            applyProfile(*account, provider.readProfile(*account));
+        } catch (const std::exception& exception) {
+            appendDetail(
+                result.detail,
+                "profile sync warning: " + std::string(exception.what()));
+        }
+    }
 
     database_.updateAccount(*account);
     return AccountLoginOutcome{*account, result};
@@ -52,10 +86,17 @@ AccountAuthOutcome AccountManager::refreshAccountStatus(const std::string& accou
     }
 
     CodexProvider provider;
-    const AuthStatus auth = provider.authStatus(*account);
+    AuthStatus auth = provider.authStatus(*account);
 
     if (auth.authenticated) {
         account->status = AccountStatus::Ready;
+        try {
+            applyProfile(*account, provider.readProfile(*account));
+        } catch (const std::exception& exception) {
+            appendDetail(
+                auth.detail,
+                "profile sync warning: " + std::string(exception.what()));
+        }
     } else if (auth.detail.find("not installed") != std::string::npos) {
         account->status = AccountStatus::Error;
     } else {
