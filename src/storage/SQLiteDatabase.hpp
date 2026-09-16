@@ -2,6 +2,7 @@
 
 #include "core/Account.hpp"
 #include "core/Quota.hpp"
+#include "core/Routing.hpp"
 
 #include <cstddef>
 #include <optional>
@@ -33,6 +34,11 @@ public:
     std::vector<QuotaHistoryEntry> listQuotaHistory(
         const std::string& accountId,
         std::size_t limit = 50) const;
+
+    void saveRoutingGroup(const RoutingGroup& group);
+    std::optional<RoutingGroup> findRoutingGroup(const std::string& groupId) const;
+    std::vector<RoutingGroup> listRoutingGroups() const;
+    void updateRoutingGroupCursor(const std::string& groupId, int lastIndex);
 
     const std::string& path() const noexcept { return path_; }
 
