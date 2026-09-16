@@ -14,11 +14,14 @@ The project manages AI provider accounts as isolated local runtime profiles. The
 - Official `codex app-server --listen stdio://` JSONL transport
 - Codex `account/read` identity and plan metadata retrieval
 - Codex `account/rateLimits/read` quota retrieval
+- Persistent quota snapshot/window history in SQLite
+- Account health status derived from authoritative quota permission plus high-usage warning thresholds
 - Cross-platform child-process transport for Windows and POSIX
 - CLI commands:
   - `router status`
   - `router doctor`
   - `router quota [account-id]`
+  - `router quota-history <account-id> [--limit N]`
   - `router account list [--refresh]`
   - `router account add codex [--login] [--browser]`
   - `router account login <account-id> [--browser]`
@@ -33,6 +36,7 @@ router CLI
 AccountManager
     |
     +-- SQLite account metadata
+    +-- SQLite quota snapshots/windows
     |
     +-- Provider abstraction
             |
@@ -144,6 +148,13 @@ Read quota for every configured Codex account:
 router quota
 ```
 
+Every successful quota read is persisted as a snapshot plus its individual rate-limit windows. View recent history with:
+
+```bash
+router quota-history codex-01
+router quota-history codex-01 --limit 100
+```
+
 Quota output is derived from Codex app-server rate-limit buckets and can contain multiple windows. routerAI intentionally does not hard-code assumptions such as exactly one 5-hour and one weekly window.
 
 Example shape:
@@ -161,6 +172,8 @@ Plan         : plus
   secondary used 18.0% | remaining 82.0% | window 7d | reset 2026-09-21 09:00:00
 ```
 
+Quota-derived account status currently follows a conservative rule: an explicit backend `ordinaryUsageAllowed=false` marks the account `LIMITED`; when usage is explicitly allowed, a reached signal or any window at 90%+ marks it `WARNING`; otherwise it is `READY`. If the backend does not provide the permission field, routerAI preserves the existing status rather than inferring recovery from percentages.
+
 Each Codex account gets its own runtime directory:
 
 ```text
@@ -176,16 +189,16 @@ This isolation is the basis for multi-account routing later: each worker can run
 
 ## Data
 
-Account metadata is stored in `router.db` by default. Existing databases are migrated additively when new metadata columns are introduced. Provider runtime state is stored below `.routerai/`. Both are local runtime data and should not be committed.
+Account metadata and quota history are stored in `router.db` by default. Existing databases are migrated additively when new metadata columns or tables are introduced. Provider runtime state is stored below `.routerai/`. Both are local runtime data and should not be committed.
 
 ## Development status
 
 1. Console skeleton + SQLite persistence - done
 2. Codex account isolation + official CLI authentication - done
 3. Codex app-server quota retrieval - done
-4. Account identity and plan metadata sync - implemented
-5. Quota history + account health snapshots - next
-6. Persistent Codex worker pool and health monitoring
+4. Account identity and plan metadata sync - done
+5. Quota history + basic account health status - implemented
+6. Persistent Codex worker pool and active health monitoring - next
 7. Multi-account selection, cooldown and failover
 8. OpenAI-compatible local API
 9. Additional providers
