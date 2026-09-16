@@ -2,16 +2,17 @@
 
 Console-first AI account router written in C++20.
 
-The project manages AI provider accounts as isolated local runtime profiles. The Codex integration delegates ChatGPT authentication and token refresh to the official Codex CLI, and reads usage/quota through the official Codex app-server protocol instead of scraping ChatGPT pages or storing OAuth tokens inside routerAI.
+The project manages AI provider accounts as isolated local runtime profiles. The Codex integration delegates ChatGPT authentication and token refresh to the official Codex CLI, and reads account metadata plus usage/quota through the official Codex app-server protocol instead of scraping ChatGPT pages or storing OAuth tokens inside routerAI.
 
 ## Current scope
 
 - C++20 + CMake
-- SQLite account persistence and schema migration
+- SQLite account persistence and additive schema migration
 - Provider abstraction
 - One isolated `CODEX_HOME` per Codex account
 - Official Codex CLI authentication
 - Official `codex app-server --listen stdio://` JSONL transport
+- Codex `account/read` identity and plan metadata retrieval
 - Codex `account/rateLimits/read` quota retrieval
 - Cross-platform child-process transport for Windows and POSIX
 - CLI commands:
@@ -42,6 +43,7 @@ AccountManager
                     |
                     +-- CodexAppServerClient
                           +-- JSONL over stdin/stdout
+                          +-- account/read
                           +-- account/rateLimits/read
                           |
                           +-- DuplexProcess
@@ -54,7 +56,7 @@ Each Codex account:
                     +-- Codex-managed credentials and runtime state
 ```
 
-routerAI stores only account metadata and the runtime-home path. ChatGPT OAuth credentials remain inside the Codex-managed credential store for that isolated `CODEX_HOME`.
+routerAI stores account metadata such as email, plan, status and runtime-home path. ChatGPT OAuth credentials remain inside the Codex-managed credential store for that isolated `CODEX_HOME`.
 
 ## Requirements
 
@@ -109,16 +111,25 @@ You can create and authenticate in one step:
 router account add codex --login
 ```
 
-Check the account:
+Check the account and refresh its profile metadata:
 
 ```bash
 router account status codex-01
 ```
 
-Refresh all known account auth states before listing:
+Refresh authentication status, email and plan for every known account before listing:
 
 ```bash
 router account list --refresh
+```
+
+Example list shape:
+
+```text
+ID            PROVIDER    PLAN        STATUS            PRIORITY  ACCOUNT
+------------------------------------------------------------------------------------------------
+codex-01      codex       plus        READY             100       account1@example.com
+codex-02      codex       pro         READY             100       account2@example.com
 ```
 
 Read quota for one account:
@@ -140,6 +151,8 @@ Example shape:
 ```text
 Account      : codex-01
 Provider     : codex
+Email        : account1@example.com
+Plan         : plus
 Usage        : ALLOWED
 
 Bucket       : codex
@@ -163,16 +176,17 @@ This isolation is the basis for multi-account routing later: each worker can run
 
 ## Data
 
-Account metadata is stored in `router.db` by default. Provider runtime state is stored below `.routerai/`. Both are local runtime data and should not be committed.
+Account metadata is stored in `router.db` by default. Existing databases are migrated additively when new metadata columns are introduced. Provider runtime state is stored below `.routerai/`. Both are local runtime data and should not be committed.
 
 ## Development status
 
 1. Console skeleton + SQLite persistence - done
 2. Codex account isolation + official CLI authentication - done
-3. Codex app-server quota retrieval - implemented, CI validation in place
-4. Account identity/plan metadata + quota history - next
-5. Persistent Codex worker pool and health monitoring
-6. Multi-account selection, cooldown and failover
-7. OpenAI-compatible local API
-8. Additional providers
-9. Web/desktop management UI
+3. Codex app-server quota retrieval - done
+4. Account identity and plan metadata sync - implemented
+5. Quota history + account health snapshots - next
+6. Persistent Codex worker pool and health monitoring
+7. Multi-account selection, cooldown and failover
+8. OpenAI-compatible local API
+9. Additional providers
+10. Web/desktop management UI
