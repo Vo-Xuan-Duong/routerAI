@@ -76,7 +76,8 @@ std::optional<double> latestUsedPercent(
 
 }  // namespace
 
-AccountManager::AccountManager(SQLiteDatabase& database) : database_(database) {}
+AccountManager::AccountManager(SQLiteDatabase& database, CredentialStore& credentials)
+    : database_(database), credentials_(credentials) {}
 
 Account AccountManager::addCodexAccount() {
     CodexProvider provider;
@@ -85,11 +86,46 @@ Account AccountManager::addCodexAccount() {
     return account;
 }
 
-Account AccountManager::addZaiAccount() {
+Account AccountManager::addZaiAccount(const std::string& mode) {
     ZaiProvider provider;
-    Account account = provider.createPlaceholderAccount(nextAccountId(provider.name()));
+    Account account = provider.createAccount(nextAccountId(provider.name()), mode);
     database_.insertAccount(account);
     return account;
+}
+
+AccountAuthOutcome AccountManager::configureZaiApiKey(
+    const std::string& accountId,
+    const std::string& apiKey,
+    const std::string& mode) {
+    auto account = database_.findAccount(accountId);
+    if (!account) {
+        throw std::runtime_error("Account not found: " + accountId);
+    }
+    if (account->provider != "zai") {
+        throw std::runtime_error("Account is not a Z.ai provider account: " + accountId);
+    }
+    if (mode != "general-api" && mode != "coding-plan") {
+        throw std::runtime_error("Unsupported Z.ai account mode: " + mode);
+    }
+
+    const std::string reference = account->id + "-api-key";
+    credentials_.put(reference, apiKey);
+    account->credentialRef = reference;
+    account->providerMode = mode;
+    account->planType = mode;
+    account->displayName = mode == "coding-plan"
+        ? "Z.ai Coding Plan"
+        : "Z.ai General API";
+    account->status = AccountStatus::Ready;
+    account->lastError.clear();
+    account->consecutiveFailures = 0;
+    account->cooldownUntilUnix.reset();
+    database_.updateAccount(*account);
+
+    const std::string detail = mode == "general-api"
+        ? "Z.ai General API credential stored locally"
+        : "Z.ai Coding Plan credential stored locally; unified routing is disabled for this mode";
+    return AccountAuthOutcome{*account, AuthStatus{true, detail}};
 }
 
 AccountLoginOutcome AccountManager::loginAccount(
@@ -102,7 +138,7 @@ AccountLoginOutcome AccountManager::loginAccount(
 
     if (account->provider != "codex") {
         throw std::runtime_error(
-            "Login is not implemented for provider: " + account->provider);
+            "Interactive login is not implemented for provider: " + account->provider);
     }
 
     CodexProvider provider;
@@ -128,6 +164,19 @@ AccountAuthOutcome AccountManager::refreshAccountStatus(const std::string& accou
     auto account = database_.findAccount(accountId);
     if (!account) {
         throw std::runtime_error("Account not found: " + accountId);
+    }
+
+    if (account->provider == "zai") {
+        const bool configured =
+            !account->credentialRef.empty() && credentials_.exists(account->credentialRef);
+        account->status = configured ? AccountStatus::Ready : AccountStatus::AuthExpired;
+        database_.updateAccount(*account);
+        return AccountAuthOutcome{
+            *account,
+            AuthStatus{
+                configured,
+                configured ? "Z.ai credential is available" : "Z.ai API key is not configured"}}
+        ;
     }
 
     if (account->provider != "codex") {
@@ -163,7 +212,7 @@ AccountAuthOutcome AccountManager::refreshAccountStatus(const std::string& accou
 void AccountManager::refreshAllAccountStatuses() {
     const auto accounts = database_.listAccounts();
     for (const auto& account : accounts) {
-        if (account.provider == "codex") {
+        if (account.provider == "codex" || account.provider == "zai") {
             refreshAccountStatus(account.id);
         }
     }
