@@ -100,11 +100,49 @@ Account AccountManager::addAntigravityAccount() {
     return account;
 }
 
+Account AccountManager::addAntigravityApiProject() {
+    AntigravityProvider provider;
+    Account account = provider.createApiProjectAccount(nextAccountId(provider.name()));
+    database_.insertAccount(account);
+    return account;
+}
+
 Account AccountManager::addZaiAccount(const std::string& mode) {
     ZaiProvider provider;
     Account account = provider.createAccount(nextAccountId(provider.name()), mode);
     database_.insertAccount(account);
     return account;
+}
+
+AccountAuthOutcome AccountManager::configureAntigravityApiKey(
+    const std::string& accountId,
+    const std::string& apiKey) {
+    auto account = database_.findAccount(accountId);
+    if (!account) {
+        throw std::runtime_error("Account not found: " + accountId);
+    }
+    if (account->provider != "antigravity" || account->providerMode != "api-project") {
+        throw std::runtime_error(
+            "Account is not an Antigravity API project: " + accountId);
+    }
+
+    const std::string reference = account->id + "-api-key";
+    credentials_.put(reference, apiKey);
+    account->credentialRef = reference;
+    account->displayName = "Antigravity API project";
+    account->planType = "gemini-api";
+    account->status = AccountStatus::Ready;
+    account->lastError.clear();
+    account->consecutiveFailures = 0;
+    account->cooldownUntilUnix.reset();
+    database_.updateAccount(*account);
+
+    return AccountAuthOutcome{
+        *account,
+        AuthStatus{
+            true,
+            "Gemini API credential stored locally for the Antigravity managed-agent API"}}
+    ;
 }
 
 AccountAuthOutcome AccountManager::configureZaiApiKey(
@@ -194,6 +232,20 @@ AccountAuthOutcome AccountManager::refreshAccountStatus(const std::string& accou
             AuthStatus{
                 configured,
                 configured ? "Z.ai credential is available" : "Z.ai API key is not configured"}};
+    }
+
+    if (account->provider == "antigravity" && account->providerMode == "api-project") {
+        const bool configured =
+            !account->credentialRef.empty() && credentials_.exists(account->credentialRef);
+        account->status = configured ? AccountStatus::Ready : AccountStatus::AuthExpired;
+        database_.updateAccount(*account);
+        return AccountAuthOutcome{
+            *account,
+            AuthStatus{
+                configured,
+                configured
+                    ? "Antigravity Gemini API credential is available"
+                    : "Antigravity Gemini API key is not configured"}};
     }
 
     AuthStatus auth;
