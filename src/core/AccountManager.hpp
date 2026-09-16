@@ -29,7 +29,12 @@ public:
 
     Account addCodexAccount();
     Account addAntigravityAccount();
+    Account addAntigravityApiProject();
     Account addZaiAccount(const std::string& mode = "general-api");
+
+    AccountAuthOutcome configureAntigravityApiKey(
+        const std::string& accountId,
+        const std::string& apiKey);
     AccountAuthOutcome configureZaiApiKey(
         const std::string& accountId,
         const std::string& apiKey,
