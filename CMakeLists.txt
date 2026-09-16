@@ -14,6 +14,7 @@ find_package(nlohmann_json CONFIG REQUIRED)
 add_executable(router
     src/main.cpp
     src/core/AccountManager.cpp
+    src/core/AccountSelector.cpp
     src/providers/codex/CodexAppServerClient.cpp
     src/providers/codex/CodexCli.cpp
     src/providers/codex/CodexProvider.cpp
@@ -48,11 +49,20 @@ if(BUILD_TESTING)
         unofficial::sqlite3::sqlite3
     )
 
+    add_executable(router_selector_tests
+        tests/AccountSelectorTests.cpp
+        src/core/AccountSelector.cpp
+    )
+    target_include_directories(router_selector_tests PRIVATE src)
+
     if(MSVC)
         target_compile_options(router_storage_tests PRIVATE /W4 /permissive-)
+        target_compile_options(router_selector_tests PRIVATE /W4 /permissive-)
     else()
         target_compile_options(router_storage_tests PRIVATE -Wall -Wextra -Wpedantic)
+        target_compile_options(router_selector_tests PRIVATE -Wall -Wextra -Wpedantic)
     endif()
 
     add_test(NAME sqlite_storage COMMAND router_storage_tests)
+    add_test(NAME account_selector COMMAND router_selector_tests)
 endif()
