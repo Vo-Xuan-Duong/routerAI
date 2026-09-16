@@ -29,7 +29,10 @@ public:
     AccountLoginOutcome loginAccount(const std::string& accountId, bool useBrowser);
     AccountAuthOutcome refreshAccountStatus(const std::string& accountId);
     void refreshAllAccountStatuses();
-    QuotaSnapshot readQuota(const std::string& accountId) const;
+    QuotaSnapshot readQuota(const std::string& accountId);
+    std::vector<QuotaHistoryEntry> listQuotaHistory(
+        const std::string& accountId,
+        std::size_t limit = 50) const;
 
     std::optional<Account> findAccount(const std::string& accountId) const;
     std::vector<Account> listAccounts() const;
