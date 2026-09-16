@@ -1,13 +1,19 @@
 #include "core/AccountSelector.hpp"
 
+#include "core/FailurePolicy.hpp"
+
 #include <algorithm>
+#include <ctime>
 
 namespace routerai {
 
 namespace {
 
-bool eligible(const Account& account) {
+bool eligible(const Account& account, std::int64_t nowUnix) {
     if (!account.enabled) {
+        return false;
+    }
+    if (FailurePolicy::isCoolingDown(account, nowUnix)) {
         return false;
     }
     return account.status == AccountStatus::Ready ||
@@ -22,11 +28,17 @@ int statusRank(AccountStatus status) {
 
 std::optional<RoutingCandidate> AccountSelector::select(
     const std::vector<RoutingCandidate>& candidates) const {
+    return select(candidates, static_cast<std::int64_t>(std::time(nullptr)));
+}
+
+std::optional<RoutingCandidate> AccountSelector::select(
+    const std::vector<RoutingCandidate>& candidates,
+    std::int64_t nowUnix) const {
     std::vector<RoutingCandidate> eligibleCandidates;
     eligibleCandidates.reserve(candidates.size());
 
     for (const auto& candidate : candidates) {
-        if (eligible(candidate.account)) {
+        if (eligible(candidate.account, nowUnix)) {
             eligibleCandidates.push_back(candidate);
         }
     }
