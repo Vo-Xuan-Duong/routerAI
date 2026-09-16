@@ -6,11 +6,8 @@ namespace routerai {
 
 namespace {
 
-bool eligible(const Account& account, std::int64_t nowUnix) {
+bool eligible(const Account& account) {
     if (!account.enabled) {
-        return false;
-    }
-    if (account.cooldownUntilUnix && *account.cooldownUntilUnix > nowUnix) {
         return false;
     }
     return account.status == AccountStatus::Ready ||
@@ -24,13 +21,12 @@ int statusRank(AccountStatus status) {
 }  // namespace
 
 std::optional<RoutingCandidate> AccountSelector::select(
-    const std::vector<RoutingCandidate>& candidates,
-    std::int64_t nowUnix) const {
+    const std::vector<RoutingCandidate>& candidates) const {
     std::vector<RoutingCandidate> eligibleCandidates;
     eligibleCandidates.reserve(candidates.size());
 
     for (const auto& candidate : candidates) {
-        if (eligible(candidate.account, nowUnix)) {
+        if (eligible(candidate.account)) {
             eligibleCandidates.push_back(candidate);
         }
     }
