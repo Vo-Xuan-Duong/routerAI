@@ -7,6 +7,7 @@
 #include <httplib.h>
 
 #include <atomic>
+#include <mutex>
 #include <string>
 #include <thread>
 
@@ -32,7 +33,8 @@ public:
     const std::string& host() const noexcept { return host_; }
     int port() const noexcept { return port_; }
     std::string baseUrl() const;
-    const std::string& apiKey() const noexcept { return apiKey_; }
+    std::string apiKey() const;
+    std::string rotateApiKey();
 
 private:
     CompletionRouter& completions_;
@@ -41,6 +43,7 @@ private:
     std::string host_;
     int port_{9000};
     std::string apiKey_;
+    mutable std::mutex apiKeyMutex_;
     httplib::Server server_;
     std::thread thread_;
     std::atomic<bool> running_{false};
