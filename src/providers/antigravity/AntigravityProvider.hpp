@@ -11,6 +11,7 @@ class AntigravityProvider final : public Provider {
 public:
     std::string name() const override;
     Account createPlaceholderAccount(const std::string& accountId) const override;
+    Account createApiProjectAccount(const std::string& accountId) const;
     LoginResult login(Account& account, const LoginOptions& options) const override;
     AuthStatus authStatus(const Account& account) const override;
     AccountProfile readProfile(const Account& account) const override;
