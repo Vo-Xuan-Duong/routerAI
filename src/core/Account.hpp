@@ -29,6 +29,8 @@ struct Account {
     std::string id;
     std::string provider;
     std::string displayName;
+    std::string email;
+    std::string planType;
     std::string runtimeHome;
     AccountStatus status{AccountStatus::Ready};
     int priority{100};
