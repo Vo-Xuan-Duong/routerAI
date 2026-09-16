@@ -18,6 +18,7 @@ public:
 
     bool cliInstalled() const;
     std::string cliVersion() const;
+    int installCli() const;
     static bool supportsUnifiedRouting(const Account& account);
 
 private:
