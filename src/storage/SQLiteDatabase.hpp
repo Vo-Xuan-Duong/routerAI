@@ -3,6 +3,7 @@
 #include "core/Account.hpp"
 
 #include <cstddef>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -20,6 +21,8 @@ public:
 
     void initialize();
     void insertAccount(const Account& account);
+    void updateAccount(const Account& account);
+    std::optional<Account> findAccount(const std::string& accountId) const;
     std::vector<Account> listAccounts() const;
     std::size_t countAccounts() const;
 
@@ -30,6 +33,7 @@ private:
     sqlite3* db_{nullptr};
 
     void execute(const char* sql) const;
+    bool columnExists(const std::string& table, const std::string& column) const;
 };
 
 }  // namespace routerai
