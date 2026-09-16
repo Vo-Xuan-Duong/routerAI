@@ -3,6 +3,7 @@
 #include "core/Account.hpp"
 #include "core/AccountManager.hpp"
 #include "core/Quota.hpp"
+#include "core/RoutingManager.hpp"
 #include "storage/SQLiteDatabase.hpp"
 
 #include <cstdint>
@@ -12,9 +13,15 @@
 
 namespace routerai {
 
+class LocalApiServer;
+
 class TerminalApp {
 public:
-    TerminalApp(SQLiteDatabase& database, AccountManager& accounts);
+    TerminalApp(
+        SQLiteDatabase& database,
+        AccountManager& accounts,
+        RoutingManager& routing,
+        LocalApiServer& api);
 
     int run();
 
@@ -23,6 +30,8 @@ private:
         Dashboard,
         Accounts,
         AddProvider,
+        RoutingGroups,
+        LocalApi,
         BestAccount,
         Doctor,
         Exit,
@@ -30,13 +39,18 @@ private:
 
     SQLiteDatabase& database_;
     AccountManager& accounts_;
+    RoutingManager& routing_;
+    LocalApiServer& api_;
 
     MainAction chooseMainAction();
     void showDashboard();
     void manageAccounts();
     void addProvider();
     void addCodexAccount();
+    void addAntigravityAccount();
     void addZaiAccount();
+    void showRoutingGroups();
+    void showLocalApi();
     void showBestAccount();
     void showDoctor();
 
@@ -51,6 +65,10 @@ private:
         const std::string& title,
         const std::vector<std::string>& options,
         const std::string& subtitle = {});
+    std::optional<std::string> promptInput(
+        const std::string& title,
+        const std::string& placeholder,
+        bool password = false);
 
     void showMessage(
         const std::string& title,
