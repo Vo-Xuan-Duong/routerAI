@@ -34,17 +34,10 @@ jobs:
       - name: CTest
         run: ctest --test-dir build --output-on-failure
 
-      - name: Smoke test
+      - name: Terminal UI smoke test
+        shell: bash
         run: |
-          ./build/router --version
-          ./build/router status
-          ./build/router doctor
-          ./build/router quota
-          ./build/router account add codex
-          ./build/router account list
-          ./build/router select
-          ./build/router quota-history codex-01
-          ./build/router quota
+          printf '1\n3\n0\n2\n7\n1\n\n8\n9\n0\n' | ./build/router
 
   windows:
     runs-on: windows-latest
@@ -69,15 +62,8 @@ jobs:
       - name: CTest
         run: ctest --test-dir build -C Release --output-on-failure
 
-      - name: Smoke test
+      - name: Terminal UI smoke test
         shell: pwsh
         run: |
-          .\build\Release\router.exe --version
-          .\build\Release\router.exe status
-          .\build\Release\router.exe doctor
-          .\build\Release\router.exe quota
-          .\build\Release\router.exe account add codex
-          .\build\Release\router.exe account list
-          .\build\Release\router.exe select
-          .\build\Release\router.exe quota-history codex-01
-          .\build\Release\router.exe quota
+          $inputData = "1`n3`n0`n2`n7`n1`n`n8`n9`n0`n"
+          $inputData | .\build\Release\router.exe
