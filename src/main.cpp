@@ -213,6 +213,36 @@ int main(int argc, char** argv) {
             }
         });
 
+        std::string selectProvider = "codex";
+        auto* routeSelect = app.add_subcommand(
+            "select",
+            "Select the best currently eligible account from local health data");
+        routeSelect->add_option(
+            "--provider",
+            selectProvider,
+            "Provider to select from")->default_val("codex");
+        routeSelect->callback([&]() {
+            const auto selected = accounts.selectAccount(selectProvider);
+            if (!selected) {
+                std::cout << "No eligible " << selectProvider << " account available.\n";
+                return;
+            }
+
+            std::cout << "Selected     : " << selected->account.id << '\n';
+            std::cout << "Provider     : " << selected->account.provider << '\n';
+            std::cout << "Status       : " << routerai::toString(selected->account.status) << '\n';
+            std::cout << "Priority     : " << selected->account.priority << '\n';
+            if (selected->latestUsedPercent) {
+                std::cout << "Latest usage : " << std::fixed << std::setprecision(1)
+                          << *selected->latestUsedPercent << "%\n";
+            } else {
+                std::cout << "Latest usage : unknown\n";
+            }
+            if (!selected->account.email.empty()) {
+                std::cout << "Account      : " << selected->account.email << '\n';
+            }
+        });
+
         std::string quotaAccountId;
         auto* quota = app.add_subcommand("quota", "Read provider quota for one or all accounts");
         quota->add_option("account-id", quotaAccountId, "Optional account ID, for example codex-01");
