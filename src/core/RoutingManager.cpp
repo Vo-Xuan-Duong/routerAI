@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <ctime>
 #include <stdexcept>
+#include <utility>
 
 namespace routerai {
 
@@ -44,6 +45,23 @@ bool excluded(
                excludedAccountIds.begin(),
                excludedAccountIds.end(),
                accountId) != excludedAccountIds.end();
+}
+
+bool automaticRoutingCapable(const Account& account) {
+    if (account.provider == "zai") {
+        return account.providerMode == "general-api";
+    }
+    if (account.provider == "antigravity") {
+        return account.providerMode == "api-project";
+    }
+    return false;
+}
+
+bool completionRoutingCapable(const Account& account) {
+    if (account.provider == "codex") {
+        return true;
+    }
+    return automaticRoutingCapable(account);
 }
 
 int statusRank(AccountStatus status) {
@@ -134,6 +152,26 @@ void RoutingManager::saveGroup(const RoutingGroup& group) {
     if (group.displayName.empty()) {
         throw std::runtime_error("Routing group display name cannot be empty");
     }
+
+    if (!group.manualAccountId.empty() &&
+        std::find(group.accountIds.begin(), group.accountIds.end(), group.manualAccountId) == group.accountIds.end()) {
+        throw std::runtime_error("Manual account must be a member of its routing group");
+    }
+
+    if (group.strategy != RoutingStrategy::Manual) {
+        for (const auto& accountId : group.accountIds) {
+            const auto account = database_.findAccount(accountId);
+            if (!account) {
+                throw std::runtime_error("Routing group references missing account: " + accountId);
+            }
+            if (!automaticRoutingCapable(*account)) {
+                throw std::runtime_error(
+                    "Automatic routing is not supported for account " + accountId +
+                    "; use Manual strategy for consumer profiles");
+            }
+        }
+    }
+
     database_.saveRoutingGroup(group);
 }
 
@@ -145,6 +183,16 @@ std::vector<RoutingGroup> RoutingManager::listGroups() const {
     return database_.listRoutingGroups();
 }
 
+bool RoutingManager::groupSupportsCompletions(const RoutingGroup& group) const {
+    for (const auto& accountId : group.accountIds) {
+        const auto account = database_.findAccount(accountId);
+        if (account && completionRoutingCapable(*account)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void RoutingManager::syncDefaultGroups() {
     const auto accounts = database_.listAccounts();
 
@@ -153,14 +201,19 @@ void RoutingManager::syncDefaultGroups() {
     codex.displayName = "Codex manual";
     codex.strategy = RoutingStrategy::Manual;
 
-    RoutingGroup antigravity;
-    antigravity.id = "antigravity-default";
-    antigravity.displayName = "Antigravity manual";
-    antigravity.strategy = RoutingStrategy::Manual;
+    RoutingGroup antigravityConsumer;
+    antigravityConsumer.id = "antigravity-default";
+    antigravityConsumer.displayName = "Antigravity consumer manual";
+    antigravityConsumer.strategy = RoutingStrategy::Manual;
+
+    RoutingGroup antigravityApi;
+    antigravityApi.id = "antigravity-api-default";
+    antigravityApi.displayName = "Antigravity API default";
+    antigravityApi.strategy = RoutingStrategy::HealthFirst;
 
     RoutingGroup zai;
     zai.id = "zai-default";
-    zai.displayName = "Z.ai default";
+    zai.displayName = "Z.ai General API default";
     zai.strategy = RoutingStrategy::HealthFirst;
 
     RoutingGroup mixed;
@@ -170,19 +223,23 @@ void RoutingManager::syncDefaultGroups() {
 
     for (const auto& account : accounts) {
         if (account.provider == "codex") {
-            // ChatGPT/Codex consumer profiles may be selected explicitly, but
-            // are not automatically pooled into mixed/failover routing.
             codex.accountIds.push_back(account.id);
-        } else if (account.provider == "antigravity") {
-            antigravity.accountIds.push_back(account.id);
-            if (account.providerMode == "api-project") {
+            continue;
+        }
+
+        if (account.provider == "antigravity") {
+            if (account.providerMode == "consumer-cli") {
+                antigravityConsumer.accountIds.push_back(account.id);
+            } else if (account.providerMode == "api-project") {
+                antigravityApi.accountIds.push_back(account.id);
                 mixed.accountIds.push_back(account.id);
             }
-        } else if (account.provider == "zai") {
+            continue;
+        }
+
+        if (account.provider == "zai" && account.providerMode == "general-api") {
             zai.accountIds.push_back(account.id);
-            if (account.providerMode == "general-api") {
-                mixed.accountIds.push_back(account.id);
-            }
+            mixed.accountIds.push_back(account.id);
         }
     }
 
@@ -202,13 +259,18 @@ void RoutingManager::syncDefaultGroups() {
                 std::find(group.accountIds.begin(), group.accountIds.end(), group.manualAccountId) == group.accountIds.end()) {
                 group.manualAccountId.clear();
             }
+        } else if (group.strategy == RoutingStrategy::Manual &&
+                   !group.manualAccountId.empty() &&
+                   std::find(group.accountIds.begin(), group.accountIds.end(), group.manualAccountId) == group.accountIds.end()) {
+            group.manualAccountId.clear();
         }
 
         database_.saveRoutingGroup(group);
     };
 
     persist(codex, true);
-    persist(antigravity, true);
+    persist(antigravityConsumer, true);
+    persist(antigravityApi, false);
     persist(zai, false);
     persist(mixed, false);
 }
