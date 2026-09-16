@@ -1,9 +1,10 @@
 #include "api/LocalApiServer.hpp"
 
+#include "api/OpenAICompat.hpp"
+
 #include <nlohmann/json.hpp>
 
 #include <array>
-#include <cstdint>
 #include <iomanip>
 #include <random>
 #include <sstream>
@@ -18,77 +19,6 @@ constexpr const char* localApiCredentialRef = "router-local-api-key";
 void setJson(httplib::Response& response, int status, const nlohmann::json& body) {
     response.status = status;
     response.set_content(body.dump(), "application/json");
-}
-
-bool requestWantsStreaming(const std::string& body) {
-    try {
-        const auto json = nlohmann::json::parse(body);
-        return json.is_object() && json.value("stream", false);
-    } catch (...) {
-        return false;
-    }
-}
-
-std::string bufferedSse(const std::string& responseBody) {
-    const auto full = nlohmann::json::parse(responseBody);
-    if (!full.is_object() || !full.contains("choices") || !full.at("choices").is_array() || full.at("choices").empty()) {
-        throw std::runtime_error("Provider response cannot be converted to chat completion SSE");
-    }
-
-    const auto& choice = full.at("choices").front();
-    std::string content;
-    std::string finishReason = "stop";
-    if (choice.is_object()) {
-        const auto message = choice.find("message");
-        if (message != choice.end() && message->is_object()) {
-            const auto value = message->find("content");
-            if (value != message->end() && value->is_string()) {
-                content = value->get<std::string>();
-            }
-        }
-        const auto finish = choice.find("finish_reason");
-        if (finish != choice.end() && finish->is_string()) {
-            finishReason = finish->get<std::string>();
-        }
-    }
-
-    const std::string id = full.value("id", std::string("chatcmpl-router-buffered"));
-    const std::string model = full.value("model", std::string("router"));
-    const std::int64_t created = full.value("created", static_cast<std::int64_t>(0));
-
-    const nlohmann::json contentChunk = {
-        {"id", id},
-        {"object", "chat.completion.chunk"},
-        {"created", created},
-        {"model", model},
-        {"choices",
-         nlohmann::json::array({
-             {
-                 {"index", 0},
-                 {"delta", {{"role", "assistant"}, {"content", content}}},
-                 {"finish_reason", nullptr},
-             },
-         })},
-    };
-
-    const nlohmann::json finishChunk = {
-        {"id", id},
-        {"object", "chat.completion.chunk"},
-        {"created", created},
-        {"model", model},
-        {"choices",
-         nlohmann::json::array({
-             {
-                 {"index", 0},
-                 {"delta", nlohmann::json::object()},
-                 {"finish_reason", finishReason},
-             },
-         })},
-    };
-
-    return "data: " + contentChunk.dump() + "\n\n" +
-           "data: " + finishChunk.dump() + "\n\n" +
-           "data: [DONE]\n\n";
 }
 
 }  // namespace
@@ -190,28 +120,21 @@ void LocalApiServer::configureRoutes() {
             return;
         }
 
-        const bool wantsStreaming = requestWantsStreaming(request.body);
-        std::string groupId = request.get_header_value("X-Router-Group");
-        if (groupId.empty()) {
-            try {
-                const auto body = nlohmann::json::parse(request.body);
-                const auto router = body.find("router");
-                if (router != body.end() && router->is_object()) {
-                    groupId = router->value("group", std::string{});
-                }
-                if (groupId.empty()) {
-                    const std::string model = body.value("model", std::string{});
-                    constexpr const char* prefix = "router/";
-                    if (model.starts_with(prefix)) {
-                        groupId = model.substr(std::char_traits<char>::length(prefix));
-                    }
-                }
-            } catch (...) {
-                // CompletionRouter returns the detailed JSON parse error.
+        nlohmann::json parsedRequest;
+        bool wantsStreaming = false;
+        std::string groupId;
+        try {
+            parsedRequest = nlohmann::json::parse(request.body);
+            wantsStreaming = openai_compat::wantsStreaming(parsedRequest);
+            groupId = openai_compat::resolveRoutingGroup(
+                parsedRequest,
+                request.get_header_value("X-Router-Group"));
+        } catch (...) {
+            // CompletionRouter returns the detailed JSON parse error.
+            groupId = request.get_header_value("X-Router-Group");
+            if (groupId.empty()) {
+                groupId = "mixed-default";
             }
-        }
-        if (groupId.empty()) {
-            groupId = "mixed-default";
         }
 
         const CompletionRouteResult result = completions_.chatCompletions(groupId, request.body);
@@ -219,7 +142,10 @@ void LocalApiServer::configureRoutes() {
 
         if (wantsStreaming && result.statusCode >= 200 && result.statusCode < 300) {
             try {
-                response.set_content(bufferedSse(result.body), "text/event-stream");
+                const auto full = nlohmann::json::parse(result.body);
+                response.set_content(
+                    openai_compat::bufferedChatCompletionSse(full),
+                    "text/event-stream");
                 response.set_header("Cache-Control", "no-cache");
                 response.set_header("X-Router-Stream-Mode", "buffered");
             } catch (const std::exception& exception) {
