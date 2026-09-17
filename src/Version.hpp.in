@@ -1,0 +1,7 @@
+#pragma once
+
+#define ROUTERAI_VERSION "@PROJECT_VERSION@"
+
+namespace routerai {
+inline constexpr const char* kVersion = ROUTERAI_VERSION;
+}
