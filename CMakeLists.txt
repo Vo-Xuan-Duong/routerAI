@@ -100,20 +100,53 @@ if(BUILD_TESTING)
         nlohmann_json::nlohmann_json
     )
 
+    add_executable(router_local_api_tests
+        tests/LocalApiServerTests.cpp
+        src/api/LocalApiServer.cpp
+        src/api/OpenAICompat.cpp
+        src/core/AccountSelector.cpp
+        src/core/CompletionRouter.cpp
+        src/core/FailurePolicy.cpp
+        src/core/RoutingManager.cpp
+        src/net/HttpClient.cpp
+        src/providers/antigravity/AntigravityApiClient.cpp
+        src/providers/codex/CodexAppServerClient.cpp
+        src/providers/codex/CodexCli.cpp
+        src/providers/zai/ZaiClient.cpp
+        src/providers/zai/ZaiProvider.cpp
+        src/security/CredentialStore.cpp
+        src/storage/SQLiteDatabase.cpp
+        src/system/DuplexProcess.cpp
+        src/system/ProcessRunner.cpp
+    )
+    target_include_directories(router_local_api_tests PRIVATE src)
+    target_link_libraries(router_local_api_tests PRIVATE
+        CURL::libcurl
+        httplib::httplib
+        unofficial::sqlite3::sqlite3
+        nlohmann_json::nlohmann_json
+    )
+    if(WIN32)
+        target_link_libraries(router_local_api_tests PRIVATE crypt32)
+    endif()
+
     if(MSVC)
         target_compile_options(router_storage_tests PRIVATE /W4 /permissive-)
         target_compile_options(router_selector_tests PRIVATE /W4 /permissive-)
         target_compile_options(router_routing_tests PRIVATE /W4 /permissive-)
         target_compile_options(router_openai_compat_tests PRIVATE /W4 /permissive-)
+        target_compile_options(router_local_api_tests PRIVATE /W4 /permissive-)
     else()
         target_compile_options(router_storage_tests PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(router_selector_tests PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(router_routing_tests PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(router_openai_compat_tests PRIVATE -Wall -Wextra -Wpedantic)
+        target_compile_options(router_local_api_tests PRIVATE -Wall -Wextra -Wpedantic)
     endif()
 
     add_test(NAME sqlite_storage COMMAND router_storage_tests)
     add_test(NAME account_selector COMMAND router_selector_tests)
     add_test(NAME routing_manager COMMAND router_routing_tests)
     add_test(NAME openai_compat COMMAND router_openai_compat_tests)
+    add_test(NAME local_api COMMAND router_local_api_tests)
 endif()
