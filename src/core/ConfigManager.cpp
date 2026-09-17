@@ -3,6 +3,7 @@
 #include <nlohmann/json.hpp>
 
 #include <fstream>
+#include <sstream>
 #include <stdexcept>
 #include <unordered_set>
 
@@ -24,19 +25,14 @@ std::string defaultRuntimeHome(const Account& account) {
     return {};
 }
 
-}  // namespace
-
-ConfigManager::ConfigManager(SQLiteDatabase& database, RoutingManager& routing)
-    : database_(database), routing_(routing) {}
-
-ConfigTransferResult ConfigManager::exportTo(const std::filesystem::path& path) const {
+nlohmann::json buildExport(SQLiteDatabase& database, RoutingManager& routing) {
     nlohmann::json root = {
         {"schema_version", 1},
         {"accounts", nlohmann::json::array()},
         {"routing_groups", nlohmann::json::array()},
     };
 
-    for (const auto& account : database_.listAccounts()) {
+    for (const auto& account : database.listAccounts()) {
         root["accounts"].push_back({
             {"id", account.id},
             {"provider", account.provider},
@@ -49,7 +45,7 @@ ConfigTransferResult ConfigManager::exportTo(const std::filesystem::path& path) 
         });
     }
 
-    for (const auto& group : routing_.listGroups()) {
+    for (const auto& group : routing.listGroups()) {
         root["routing_groups"].push_back({
             {"id", group.id},
             {"display_name", group.displayName},
@@ -59,28 +55,13 @@ ConfigTransferResult ConfigManager::exportTo(const std::filesystem::path& path) 
             {"account_ids", group.accountIds},
         });
     }
-
-    if (path.has_parent_path()) {
-        std::filesystem::create_directories(path.parent_path());
-    }
-    std::ofstream output(path, std::ios::binary | std::ios::trunc);
-    if (!output) throw std::runtime_error("Cannot open config export path: " + path.string());
-    output << root.dump(2) << '\n';
-    if (!output) throw std::runtime_error("Failed to write config export: " + path.string());
-
-    ConfigTransferResult result;
-    result.accounts = root["accounts"].size();
-    result.routingGroups = root["routing_groups"].size();
-    result.detail = "Exported metadata only. Provider secrets and credential references were excluded.";
-    return result;
+    return root;
 }
 
-ConfigTransferResult ConfigManager::importFrom(const std::filesystem::path& path) {
-    std::ifstream input(path, std::ios::binary);
-    if (!input) throw std::runtime_error("Cannot open config import path: " + path.string());
-
-    nlohmann::json root;
-    input >> root;
+ConfigTransferResult applyImport(
+    SQLiteDatabase& database,
+    RoutingManager& routing,
+    const nlohmann::json& root) {
     if (!root.is_object() || root.value("schema_version", 0) != 1) {
         throw std::runtime_error("Unsupported routerAI config schema");
     }
@@ -95,8 +76,9 @@ ConfigTransferResult ConfigManager::importFrom(const std::filesystem::path& path
         const std::string provider = item.value("provider", std::string{});
         if (id.empty() || provider.empty()) continue;
 
+        const auto existing = database.findAccount(id);
         Account account;
-        if (const auto existing = database_.findAccount(id)) {
+        if (existing) {
             account = *existing;
         } else {
             account.id = id;
@@ -114,18 +96,21 @@ ConfigTransferResult ConfigManager::importFrom(const std::filesystem::path& path
         account.enabled = item.value("enabled", account.enabled);
         if (account.runtimeHome.empty()) account.runtimeHome = defaultRuntimeHome(account);
         if (!account.enabled) account.status = AccountStatus::Disabled;
+        else if (!existing) account.status = AccountStatus::AuthExpired;
 
-        if (database_.findAccount(id)) database_.updateAccount(account);
-        else database_.insertAccount(account);
+        // credentialRef intentionally comes only from an existing local row.
+        // It is never accepted from exported/imported JSON.
+        if (existing) database.updateAccount(account);
+        else database.insertAccount(account);
         ++result.accounts;
     }
 
-    routing_.syncDefaultGroups();
+    routing.syncDefaultGroups();
     const auto groupsJson = root.value("routing_groups", nlohmann::json::array());
     if (!groupsJson.is_array()) throw std::runtime_error("routing_groups must be an array");
 
     std::unordered_set<std::string> knownAccounts;
-    for (const auto& account : database_.listAccounts()) knownAccounts.insert(account.id);
+    for (const auto& account : database.listAccounts()) knownAccounts.insert(account.id);
 
     for (const auto& item : groupsJson) {
         if (!item.is_object()) continue;
@@ -146,13 +131,49 @@ ConfigTransferResult ConfigManager::importFrom(const std::filesystem::path& path
                 if (knownAccounts.contains(member)) group.accountIds.push_back(member);
             }
         }
-        routing_.saveGroup(group);
+        routing.saveGroup(group);
         ++result.routingGroups;
     }
 
-    routing_.syncDefaultGroups();
+    routing.syncDefaultGroups();
     result.detail = "Imported metadata. Secrets were not present; reconfigure provider credentials where required.";
     return result;
+}
+
+}  // namespace
+
+ConfigManager::ConfigManager(SQLiteDatabase& database, RoutingManager& routing)
+    : database_(database), routing_(routing) {}
+
+std::string ConfigManager::exportJson() const {
+    return buildExport(database_, routing_).dump(2) + "\n";
+}
+
+ConfigTransferResult ConfigManager::importJson(const std::string& jsonText) {
+    return applyImport(database_, routing_, nlohmann::json::parse(jsonText));
+}
+
+ConfigTransferResult ConfigManager::exportTo(const std::filesystem::path& path) const {
+    if (path.has_parent_path()) std::filesystem::create_directories(path.parent_path());
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    if (!output) throw std::runtime_error("Cannot open config export path: " + path.string());
+    const std::string jsonText = exportJson();
+    output.write(jsonText.data(), static_cast<std::streamsize>(jsonText.size()));
+    if (!output) throw std::runtime_error("Failed to write config export: " + path.string());
+
+    ConfigTransferResult result;
+    result.accounts = database_.listAccounts().size();
+    result.routingGroups = routing_.listGroups().size();
+    result.detail = "Exported metadata only. Provider secrets and credential references were excluded.";
+    return result;
+}
+
+ConfigTransferResult ConfigManager::importFrom(const std::filesystem::path& path) {
+    std::ifstream input(path, std::ios::binary);
+    if (!input) throw std::runtime_error("Cannot open config import path: " + path.string());
+    std::ostringstream buffer;
+    buffer << input.rdbuf();
+    return importJson(buffer.str());
 }
 
 }  // namespace routerai
