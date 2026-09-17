@@ -28,6 +28,24 @@ bool validIdentifier(const std::string& value) {
     return true;
 }
 
+bool validProvider(const std::string& provider) {
+    return provider == "codex" || provider == "antigravity" || provider == "zai";
+}
+
+std::string defaultProviderMode(const std::string& provider) {
+    if (provider == "codex") return "subscription-runtime";
+    if (provider == "antigravity") return "consumer-cli";
+    if (provider == "zai") return "general-api";
+    return {};
+}
+
+bool validProviderMode(const std::string& provider, const std::string& mode) {
+    if (provider == "codex") return mode == "subscription-runtime";
+    if (provider == "antigravity") return mode == "consumer-cli" || mode == "api-project";
+    if (provider == "zai") return mode == "general-api" || mode == "coding-plan";
+    return false;
+}
+
 std::string defaultRuntimeHome(const Account& account) {
     if (account.provider == "codex") {
         return (std::filesystem::path(".routerai") / "accounts" / account.id / "codex-home").string();
@@ -84,21 +102,32 @@ ConfigTransferResult applyImport(
         if (!item.is_object()) continue;
         const std::string id = item.value("id", std::string{});
         const std::string provider = item.value("provider", std::string{});
-        if (!validIdentifier(id) || !validIdentifier(provider)) continue;
+        if (!validIdentifier(id) || !validProvider(provider)) continue;
 
         const auto existing = database.findAccount(id);
         Account account;
         if (existing) {
+            // Provider identity is immutable through secret-free config import.
+            // Otherwise an imported file could rebind an existing local
+            // credentialRef to a different provider or credential mode.
+            if (provider != existing->provider) continue;
+            if (item.contains("provider_mode") && item.at("provider_mode").is_string()) {
+                const std::string importedMode = item.at("provider_mode").get<std::string>();
+                if (!importedMode.empty() && importedMode != existing->providerMode) continue;
+            }
             account = *existing;
         } else {
+            std::string mode = item.value("provider_mode", std::string{});
+            if (mode.empty()) mode = defaultProviderMode(provider);
+            if (!validProviderMode(provider, mode)) continue;
+
             account.id = id;
             account.provider = provider;
+            account.providerMode = mode;
             account.status = AccountStatus::AuthExpired;
             account.enabled = true;
         }
 
-        account.provider = provider;
-        account.providerMode = item.value("provider_mode", account.providerMode);
         account.displayName = item.value("display_name", account.displayName);
         account.email = item.value("email", account.email);
         account.planType = item.value("plan_type", account.planType);
