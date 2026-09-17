@@ -8,7 +8,7 @@
 - Usage Dashboard with account/provider counts, latest quota bars and request success rate.
 - Account Controls for enable, disable and permanent local removal.
 - Secret-free configuration export/import for accounts and routing groups.
-- Persistent request history containing routing metadata, HTTP/provider status, latency, stream flag and bounded errors; prompts and response bodies are not logged.
+- Persistent request history containing routing metadata, HTTP/provider status, latency, stream flag and bounded errors; prompts and successful response bodies are not logged.
 - Embedded Web Admin at `http://127.0.0.1:9000/admin`.
 - Authenticated Web Admin APIs for overview, account controls, request history and config transfer.
 - Web Admin provider setup for Codex, Antigravity consumer/API-project modes and Z.ai General/Coding Plan modes.
@@ -17,8 +17,8 @@
 - Desktop account-switch capability abstraction that fails closed until a supported provider adapter exists.
 - CPack install/package metadata.
 - `package.cmd` for local Windows portable ZIP assembly, including vcpkg and discovered MinGW runtime DLLs.
-- Manual `package` GitHub Actions workflow producing Windows and Linux binary artifacts.
-- Management feature tests for config secrecy, unsafe identifier rejection, request history and account deletion.
+- Linux-only GitHub `package` workflow producing a portable Linux artifact and creating a GitHub Release for `v*` tags.
+- Management feature tests for config secrecy, provider/mode rebinding rejection, unsafe identifier/provider rejection, request history and account deletion/manual-routing cleanup.
 
 ### Changed
 
@@ -26,16 +26,23 @@
 - Provider Console now lives behind the management control plane and retains the existing provider/login/quota/routing TUI.
 - Account `enabled` state is treated as an operator routing switch and no longer overwrites provider auth/quota health.
 - Removed accounts are also removed from routing memberships and manual group selections; request history remains as an audit trail.
-- Windows CI packaging uses a static vcpkg triplet for a more self-contained binary distribution.
+- GitHub build/test CI is Linux-only; Windows validation and packaging are performed locally with `test.cmd` and `package.cmd`.
+- CI and packaging pin the vcpkg revision instead of following upstream `main` on each run.
 
 ### Security / privacy
 
 - Exported config never contains provider secrets or `credential_ref` values.
 - Imported config cannot set local credential references and uses restricted account/group/provider identifiers.
+- Existing accounts cannot change `provider` or `provider_mode` through config import, preventing an existing local credential reference from being rebound to another provider adapter.
 - Web Admin mutation/provider-setup endpoints require the same local Bearer key as the OpenAI-compatible API.
 - Provider keys entered in Web Admin are sent only to the localhost router process and stored through `CredentialStore`.
-- Request history deliberately excludes prompt and completion bodies.
+- Request history deliberately excludes prompt bodies and successful completion bodies.
 - Desktop switching does not copy cookies, OAuth tokens, client profile databases, or OS keyring entries.
+
+### Verification
+
+- PR #3 passed Linux Configure, Build and CTest before merge into `main`.
+- Windows verification is intentionally local rather than consuming GitHub Actions minutes.
 
 ### Provider-dependent boundary
 
