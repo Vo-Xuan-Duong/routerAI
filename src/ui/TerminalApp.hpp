@@ -32,9 +32,9 @@ private:
         AddProvider,
         RoutingGroups,
         LocalApi,
-        DesktopProfiles,
         BestAccount,
         Doctor,
+        DesktopProfiles,
         Exit,
     };
 
@@ -54,9 +54,9 @@ private:
     void createCustomRoutingGroup();
     void editRoutingGroupMembers(RoutingGroup& group);
     void showLocalApi();
-    void showDesktopProfiles();
     void showBestAccount();
     void showDoctor();
+    void showDesktopProfiles();
 
     void showAccountDetails(const Account& account);
     void showProviderModels(const Account& account);
