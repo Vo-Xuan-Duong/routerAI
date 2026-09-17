@@ -6,6 +6,7 @@
 
 #include <array>
 #include <iomanip>
+#include <memory>
 #include <random>
 #include <sstream>
 #include <utility>
@@ -19,6 +20,22 @@ constexpr const char* localApiCredentialRef = "router-local-api-key";
 void setJson(httplib::Response& response, int status, const nlohmann::json& body) {
     response.status = status;
     response.set_content(body.dump(), "application/json");
+}
+
+std::string streamErrorEvent(const CompletionStreamResult& result) {
+    nlohmann::json payload;
+    try {
+        payload = nlohmann::json::parse(result.body);
+    } catch (...) {
+        payload = {
+            {"error",
+             {
+                 {"message", result.body.empty() ? "Streaming request failed" : result.body},
+                 {"type", "router_stream_error"},
+             }},
+        };
+    }
+    return "event: error\ndata: " + payload.dump() + "\n\n";
 }
 
 }  // namespace
@@ -152,28 +169,57 @@ void LocalApiServer::configureRoutes() {
             }
         }
 
+        if (wantsStreaming) {
+            const auto group = routing_.findGroup(groupId);
+            if (!group) {
+                setJson(response, 404, {{"error", {{"message", "Routing group not found: " + groupId}, {"type", "router_error"}}}});
+                return;
+            }
+            if (!group->enabled) {
+                setJson(response, 503, {{"error", {{"message", "Routing group is disabled: " + groupId}, {"type", "router_error"}}}});
+                return;
+            }
+
+            response.status = 200;
+            response.set_header("Cache-Control", "no-cache");
+            response.set_header("X-Router-Group", groupId);
+            response.set_header("X-Router-Stream-Mode", "native-or-buffered");
+
+            const std::string body = request.body;
+            auto started = std::make_shared<bool>(false);
+            response.set_chunked_content_provider(
+                "text/event-stream",
+                [this, body, groupId, started](std::size_t, httplib::DataSink& sink) mutable {
+                    if (*started) {
+                        sink.done();
+                        return true;
+                    }
+                    *started = true;
+
+                    const CompletionStreamResult result = completions_.streamChatCompletions(
+                        groupId,
+                        body,
+                        [&](std::string_view chunk) {
+                            return sink.write(chunk.data(), chunk.size());
+                        });
+
+                    if (result.statusCode < 200 || result.statusCode >= 300) {
+                        const std::string errorEvent = streamErrorEvent(result);
+                        sink.write(errorEvent.data(), errorEvent.size());
+                        const std::string done = "data: [DONE]\n\n";
+                        sink.write(done.data(), done.size());
+                    }
+                    sink.done();
+                    return true;
+                });
+            return;
+        }
+
         const CompletionRouteResult result = completions_.chatCompletions(groupId, request.body);
         response.status = static_cast<int>(result.statusCode);
-
-        if (wantsStreaming && result.statusCode >= 200 && result.statusCode < 300) {
-            try {
-                const auto full = nlohmann::json::parse(result.body);
-                response.set_content(
-                    openai_compat::bufferedChatCompletionSse(full),
-                    "text/event-stream");
-                response.set_header("Cache-Control", "no-cache");
-                response.set_header("X-Router-Stream-Mode", "buffered");
-            } catch (const std::exception& exception) {
-                setJson(
-                    response,
-                    502,
-                    {{"error", {{"message", exception.what()}, {"type", "router_stream_error"}}}});
-            }
-        } else {
-            response.set_content(
-                result.body,
-                result.contentType.empty() ? "application/json" : result.contentType);
-        }
+        response.set_content(
+            result.body,
+            result.contentType.empty() ? "application/json" : result.contentType);
 
         if (!result.accountId.empty()) {
             response.set_header("X-Router-Account", result.accountId);
