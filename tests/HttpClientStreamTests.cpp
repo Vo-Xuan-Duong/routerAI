@@ -2,7 +2,6 @@
 
 #include <httplib.h>
 
-#include <chrono>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
@@ -45,8 +44,8 @@ int main() {
         response.set_content("{\"error\":\"bad key\"}", "application/json");
     });
 
-    std::thread serverThread([&] { server.listen("127.0.0.1", port); });
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    require(server.bind_to_port("127.0.0.1", port), "mock HTTP server failed to bind test port");
+    std::thread serverThread([&] { server.listen_after_bind(); });
 
     try {
         std::string streamed;
