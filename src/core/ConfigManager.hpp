@@ -18,6 +18,8 @@ class ConfigManager {
 public:
     ConfigManager(SQLiteDatabase& database, RoutingManager& routing);
 
+    std::string exportJson() const;
+    ConfigTransferResult importJson(const std::string& jsonText);
     ConfigTransferResult exportTo(const std::filesystem::path& path) const;
     ConfigTransferResult importFrom(const std::filesystem::path& path);
 
