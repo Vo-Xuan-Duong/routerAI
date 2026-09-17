@@ -65,6 +65,10 @@ void writeBytes(const std::filesystem::path& path, const std::vector<unsigned ch
 #ifdef __linux__
 
 bool secretToolAvailable() {
+    const char* sessionBus = std::getenv("DBUS_SESSION_BUS_ADDRESS");
+    if (!sessionBus || !*sessionBus) {
+        return false;
+    }
     const int rc = std::system("command -v secret-tool >/dev/null 2>&1");
     return rc == 0;
 }
