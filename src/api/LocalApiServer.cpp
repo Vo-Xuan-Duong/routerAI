@@ -204,10 +204,16 @@ void LocalApiServer::configureRoutes() {
                         });
 
                     if (result.statusCode < 200 || result.statusCode >= 300) {
-                        const std::string errorEvent = streamErrorEvent(result);
-                        sink.write(errorEvent.data(), errorEvent.size());
-                        const std::string done = "data: [DONE]\n\n";
-                        sink.write(done.data(), done.size());
+                        // Antigravity provider SSE errors already carry their own
+                        // error event and [DONE]. Other failures are normalized here.
+                        const bool alreadyTerminated =
+                            result.provider == "antigravity" && result.emittedData;
+                        if (!alreadyTerminated) {
+                            const std::string errorEvent = streamErrorEvent(result);
+                            sink.write(errorEvent.data(), errorEvent.size());
+                            const std::string done = "data: [DONE]\n\n";
+                            sink.write(done.data(), done.size());
+                        }
                     }
                     sink.done();
                     return true;
