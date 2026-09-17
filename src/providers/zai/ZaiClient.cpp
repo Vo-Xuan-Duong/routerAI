@@ -45,6 +45,7 @@ HttpResponse ZaiClient::chatCompletionsStream(
 
 std::vector<std::string> ZaiClient::documentedChatModels() {
     return {
+        "glm-5.2",
         "glm-5.1",
         "glm-5-turbo",
         "glm-5",
@@ -63,6 +64,7 @@ std::vector<std::string> ZaiClient::documentedChatModels() {
 
 std::vector<std::string> ZaiClient::documentedCodingPlanModels() {
     return {
+        "glm-5.2",
         "glm-5.1",
         "glm-5-turbo",
         "glm-4.7",
