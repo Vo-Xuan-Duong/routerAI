@@ -31,10 +31,9 @@ HttpResponse ZaiClient::chatCompletions(
 HttpResponse ZaiClient::validateGeneralApiKey(
     const std::string& apiKey,
     long timeoutSeconds) {
-    // Z.ai's public OpenAPI does not currently expose a model-list endpoint.
-    // The tokenizer endpoint is documented, authenticated, and does not
-    // generate a completion, so it is used as the light-weight credential
-    // validation probe for General API credentials.
+    // Z.ai's public API documentation does not currently expose models.list.
+    // The authenticated tokenizer route is used as a non-generation probe so
+    // routerAI can reject an invalid General API credential before routing it.
     const std::string body =
         R"({"model":"glm-4.6","messages":[{"role":"user","content":"routerAI credential check"}]})";
 
@@ -46,9 +45,10 @@ HttpResponse ZaiClient::validateGeneralApiKey(
 }
 
 std::vector<std::string> ZaiClient::documentedChatModels() {
-    // Kept in the same order as the current Z.ai OpenAPI chat-completion enum.
+    // Public chat-completion model enum from the current Z.ai API reference.
+    // Keep this conservative: additions should follow documented availability
+    // rather than guessing model names from announcements or private endpoints.
     return {
-        "glm-5.2",
         "glm-5.1",
         "glm-5-turbo",
         "glm-5",
