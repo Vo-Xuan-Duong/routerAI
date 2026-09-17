@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.7.0 - Management release
+
+### Added
+
+- New management control-plane TUI as the default routerAI screen.
+- Usage Dashboard with account/provider counts, latest quota bars and request success rate.
+- Account Controls for enable, disable and permanent local removal.
+- Secret-free configuration export/import for accounts and routing groups.
+- Persistent request history containing routing metadata, HTTP/provider status, latency, stream flag and bounded errors; prompts and response bodies are not logged.
+- Embedded Web Admin at `http://127.0.0.1:9000/admin`.
+- Authenticated Web Admin APIs for overview, account controls, request history and config transfer.
+- Web Admin usage dashboard, account controls, request log viewer and JSON config editor/download.
+- Desktop account-switch capability abstraction that fails closed until a supported provider adapter exists.
+- CPack install/package metadata.
+- `package.cmd` for local Windows portable ZIP assembly.
+- Manual `package` GitHub Actions workflow producing Windows and Linux binary artifacts.
+- Management feature tests for config secrecy, request history and account deletion.
+
+### Changed
+
+- Version bumped to 0.7.0.
+- Provider Console now lives behind the management control plane and retains the existing provider/login/quota/routing TUI.
+- Account `enabled` state is treated as an operator routing switch and no longer overwrites provider auth/quota health.
+- Removed accounts are also removed from routing memberships and manual group selections; request history remains as an audit trail.
+- Windows CI packaging uses a static vcpkg triplet for a more self-contained binary distribution.
+
+### Security / privacy
+
+- Exported config never contains provider secrets or `credential_ref` values.
+- Imported config cannot set local credential references and uses restricted account/group identifiers.
+- Web Admin mutation endpoints require the same local Bearer key as the OpenAI-compatible API.
+- Request history deliberately excludes prompt and completion bodies.
+- Desktop switching does not copy cookies, OAuth tokens, client profile databases, or OS keyring entries.
+
+### Provider-dependent boundary
+
+- Codex Desktop and Antigravity Desktop switching remain unavailable in this build because no supported external switch adapter is registered. The TUI and adapter boundary are ready for a future provider-supported interface.
+
 ## 0.6.0 - Release candidate
 
 ### Added
@@ -23,12 +61,12 @@
 
 ### Changed
 
-- GitHub Actions now run only for pull requests or explicit manual dispatch, not every push.
+- GitHub Actions run only for pull requests or explicit manual dispatch, not every push.
 - Consumer Codex/Antigravity profiles remain manual and are separated from automatic API credential routing.
-- Z.ai static metadata now includes documented GLM-5.2 support.
+- Z.ai static metadata includes documented GLM-5.2 support.
 
 ### Known boundaries
 
 - Desktop account/profile switching remains user-controlled until providers expose stable supported external switching interfaces.
-- Z.ai's documented OpenAPI specification does not currently expose a dedicated no-cost `/models` validation endpoint.
+- Z.ai's documented OpenAPI specification does not expose a dedicated no-cost `/models` validation endpoint.
 - Native cross-provider streaming failover is not attempted after bytes have been emitted; mixed groups use buffered SSE instead.
