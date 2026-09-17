@@ -338,11 +338,14 @@ ProviderModelsOutcome AccountManager::discoverModels(const std::string& accountI
     }
 
     if (account->provider == "zai") {
+        const bool codingPlan = account->providerMode == "coding-plan";
         return {
             true,
-            ZaiClient::documentedChatModels(),
-            account->providerMode == "coding-plan"
-                ? "Z.ai Coding Plan model names are sourced from public tool/provider documentation"
+            codingPlan
+                ? ZaiClient::documentedCodingPlanModels()
+                : ZaiClient::documentedChatModels(),
+            codingPlan
+                ? "Z.ai Coding Plan documented model set"
                 : "Z.ai public API reference does not expose models.list; showing documented chat-completion models"};
     }
 
