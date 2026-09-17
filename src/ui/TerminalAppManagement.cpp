@@ -124,7 +124,9 @@ void ManagementApp::showUsageDashboard() {
     const auto logs = database_.listRequestLogs(1000);
     std::size_t success = 0;
     for (const auto& log : logs) if (log.success) ++success;
-    const double successRate = logs.empty() ? 100.0 : 100.0 * static_cast<double>(success) / logs.size();
+    const double successRate = logs.empty()
+        ? 100.0
+        : 100.0 * static_cast<double>(success) / static_cast<double>(logs.size());
 
     auto screen = ScreenInteractive::Fullscreen();
     auto renderer = Renderer([&] {
@@ -151,7 +153,7 @@ void ManagementApp::showUsageDashboard() {
                 bar,
             }) | border);
         }
-        if (rows.empty()) rows.push_back(text("No accounts configured. Open Provider Console → Add Provider.") | dim);
+        if (rows.empty()) rows.push_back(text("No accounts configured. Open Provider Console -> Add Provider.") | dim);
 
         std::ostringstream successText;
         successText << std::fixed << std::setprecision(1) << successRate << '%';
@@ -165,14 +167,17 @@ void ManagementApp::showUsageDashboard() {
                 vbox({text("Disabled") | dim, text(std::to_string(disabled)) | bold | center}) | border | flex,
                 vbox({text("Req success") | dim, text(successText.str()) | bold | center}) | border | flex,
             }),
-            hbox({vbox({text("Providers") | bold, separator(), vbox(std::move(providerItems))}) | border | size(WIDTH, EQUAL, 25),
-                  vbox(std::move(rows)) | frame | flex}),
+            hbox({
+                vbox({text("Providers") | bold, separator(), vbox(std::move(providerItems))}) | border | size(WIDTH, EQUAL, 25),
+                vbox(std::move(rows)) | frame | flex,
+            }),
             separator(), text("Enter / Esc / q  back") | dim,
         }) | border;
     });
     auto component = CatchEvent(renderer, [&](Event event) {
         if (event == Event::Return || event == Event::Escape || event == Event::Character("q")) {
-            screen.ExitLoopClosure()(); return true;
+            screen.ExitLoopClosure()();
+            return true;
         }
         return false;
     });
@@ -189,7 +194,10 @@ void ManagementApp::manageAccountLifecycle() {
                 (account.enabled ? toString(account.status) : "DISABLED") + " | " + identity(account));
         }
         entries.push_back("Back");
-        const int selected = chooseOption("Account Controls", entries, "Enable/disable affects routing. Remove deletes local account credential/profile state.");
+        const int selected = chooseOption(
+            "Account Controls",
+            entries,
+            "Enable/disable affects routing. Remove deletes local account credential/profile state.");
         if (selected < 0 || static_cast<std::size_t>(selected) >= accounts.size()) return;
 
         const Account account = accounts[static_cast<std::size_t>(selected)];
@@ -277,12 +285,21 @@ void ManagementApp::showConfigTransfer() {
             const auto path = promptInput("Export path", "routerai-config.json");
             if (!path || path->empty()) continue;
             const auto result = configs.exportTo(*path);
-            showMessage("Config exported", {*path, std::to_string(result.accounts) + " accounts", std::to_string(result.routingGroups) + " routing groups", result.detail});
+            showMessage("Config exported", {
+                *path,
+                std::to_string(result.accounts) + " accounts",
+                std::to_string(result.routingGroups) + " routing groups",
+                result.detail,
+            });
         } else if (action == 1) {
             const auto path = promptInput("Import path", "routerai-config.json");
             if (!path || path->empty()) continue;
             const auto result = configs.importFrom(*path);
-            showMessage("Config imported", {std::to_string(result.accounts) + " accounts", std::to_string(result.routingGroups) + " routing groups", result.detail});
+            showMessage("Config imported", {
+                std::to_string(result.accounts) + " accounts",
+                std::to_string(result.routingGroups) + " routing groups",
+                result.detail,
+            });
         } else {
             return;
         }
@@ -297,11 +314,17 @@ void ManagementApp::showWebAdmin() {
             api_.adminUrl());
         if (action == 0) {
             const bool opened = openUrl(api_.adminUrl());
-            showMessage(opened ? "Browser opened" : "Could not open browser", {api_.adminUrl(), "Use the Local API key to connect."}, !opened);
+            showMessage(
+                opened ? "Browser opened" : "Could not open browser",
+                {api_.adminUrl(), "Use the Local API key to connect."},
+                !opened);
         } else if (action == 1) {
             showMessage("Local API key", {api_.apiKey(), "This key controls both /v1 and authenticated /admin/api endpoints."});
         } else if (action == 2) {
-            const int confirm = chooseOption("Rotate key?", {"Cancel", "Rotate"}, "Existing clients and Web Admin sessions will immediately need the new key.");
+            const int confirm = chooseOption(
+                "Rotate key?",
+                {"Cancel", "Rotate"},
+                "Existing clients and Web Admin sessions will immediately need the new key.");
             if (confirm == 1) showMessage("New local API key", {api_.rotateApiKey()});
         } else {
             return;
@@ -316,19 +339,30 @@ int ManagementApp::chooseOption(
     if (options.empty()) return -1;
     int selected = 0;
     int result = -1;
-    auto menu = Menu(&options, &selected);
+    auto entries = options;
+    auto menu = Menu(&entries, &selected);
     auto screen = ScreenInteractive::Fullscreen();
     auto renderer = Renderer(menu, [&] {
         return vbox({
             hbox({text(" routerAI ") | bold | color(Color::Cyan), text(kVersion) | dim, filler(), text(title + " ") | bold}),
-            separator(), subtitle.empty() ? text("") : paragraph(subtitle) | dim,
+            separator(),
+            subtitle.empty() ? text("") : paragraph(subtitle) | dim,
             menu->Render() | frame | flex,
-            separator(), text("Up/Down navigate   Enter select   Esc/q back") | dim,
+            separator(),
+            text("Up/Down navigate   Enter select   Esc/q back") | dim,
         }) | border;
     });
     auto component = CatchEvent(renderer, [&](Event event) {
-        if (event == Event::Return) { result = selected; screen.ExitLoopClosure()(); return true; }
-        if (event == Event::Escape || event == Event::Character("q")) { result = -1; screen.ExitLoopClosure()(); return true; }
+        if (event == Event::Return) {
+            result = selected;
+            screen.ExitLoopClosure()();
+            return true;
+        }
+        if (event == Event::Escape || event == Event::Character("q")) {
+            result = -1;
+            screen.ExitLoopClosure()();
+            return true;
+        }
         return false;
     });
     screen.Loop(component);
@@ -340,20 +374,29 @@ std::optional<std::string> ManagementApp::promptInput(
     const std::string& placeholder) {
     std::string value;
     bool accepted = false;
-    InputOption option;
-    option.placeholder = placeholder;
-    auto input = Input(&value, option);
     auto screen = ScreenInteractive::Fullscreen();
+    InputOption option;
+    option.multiline = false;
+    option.on_enter = [&] {
+        accepted = true;
+        screen.ExitLoopClosure()();
+    };
+    auto input = Input(&value, placeholder, option);
     auto renderer = Renderer(input, [&] {
         return vbox({
             hbox({text(" routerAI ") | bold | color(Color::Cyan), filler(), text(title + " ") | bold}),
-            separator(), input->Render() | border,
-            separator(), text("Enter accept   Esc cancel") | dim,
+            separator(),
+            input->Render() | border,
+            separator(),
+            text("Enter accept   Esc cancel") | dim,
         }) | border;
     });
     auto component = CatchEvent(renderer, [&](Event event) {
-        if (event == Event::Return) { accepted = true; screen.ExitLoopClosure()(); return true; }
-        if (event == Event::Escape) { screen.ExitLoopClosure()(); return true; }
+        if (event == Event::Escape) {
+            accepted = false;
+            screen.ExitLoopClosure()();
+            return true;
+        }
         return false;
     });
     screen.Loop(component);
@@ -372,13 +415,16 @@ void ManagementApp::showMessage(
         for (const auto& line : lines) elements.push_back(paragraph(line));
         return vbox({
             text(title) | bold | color(isError ? Color::Red : Color::Cyan),
-            separator(), vbox(std::move(elements)) | frame | flex,
-            separator(), text("Enter / Esc / q  back") | dim,
+            separator(),
+            vbox(std::move(elements)) | frame | flex,
+            separator(),
+            text("Enter / Esc / q  back") | dim,
         }) | border;
     });
     auto component = CatchEvent(renderer, [&](Event event) {
         if (event == Event::Return || event == Event::Escape || event == Event::Character("q")) {
-            screen.ExitLoopClosure()(); return true;
+            screen.ExitLoopClosure()();
+            return true;
         }
         return false;
     });
