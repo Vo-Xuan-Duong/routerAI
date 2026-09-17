@@ -75,17 +75,24 @@ bool DesktopProfileManager::launch(const DesktopApplication& application) const 
 DesktopApplication DesktopProfileManager::detectCodex() {
     DesktopApplication application;
     application.id = "codex-desktop";
-    application.displayName = "Codex Desktop";
+    application.displayName = "ChatGPT Desktop / Codex";
 
 #ifdef _WIN32
     const auto local = environmentPath("LOCALAPPDATA");
     std::vector<std::filesystem::path> candidates;
     if (!local.empty()) {
+        // Current OpenAI desktop builds expose Codex as a view inside the
+        // ChatGPT desktop app. Keep legacy Codex paths as fallbacks for users
+        // who have not migrated yet.
+        candidates.push_back(local / "Programs" / "ChatGPT" / "ChatGPT.exe");
+        candidates.push_back(local / "OpenAI" / "ChatGPT" / "ChatGPT.exe");
+        candidates.push_back(local / "Microsoft" / "WindowsApps" / "ChatGPT.exe");
         candidates.push_back(local / "OpenAI" / "Codex" / "Codex.exe");
         candidates.push_back(local / "Programs" / "Codex" / "Codex.exe");
     }
 #elif defined(__APPLE__)
     std::vector<std::filesystem::path> candidates = {
+        "/Applications/ChatGPT.app",
         "/Applications/Codex.app",
     };
 #else
@@ -95,9 +102,13 @@ DesktopApplication DesktopProfileManager::detectCodex() {
     if (const auto executable = firstExisting(candidates)) {
         application.installed = true;
         application.executable = *executable;
-        application.detail = "Installed. Account switching remains user-controlled in the desktop application.";
+        application.detail =
+            "Installed. Codex is available from the ChatGPT desktop application. "
+            "Account switching remains controlled by the official desktop app.";
     } else {
-        application.detail = "Not detected by stable filesystem candidates. Desktop account switching is not exposed as a supported external API.";
+        application.detail =
+            "ChatGPT/Codex desktop was not detected by known filesystem candidates. "
+            "Desktop account switching is not exposed as a stable external profile API.";
     }
     return application;
 }
@@ -126,9 +137,13 @@ DesktopApplication DesktopProfileManager::detectAntigravity() {
     if (const auto executable = firstExisting(candidates)) {
         application.installed = true;
         application.executable = *executable;
-        application.detail = "Installed. The active Google identity remains managed by the official application/system keyring.";
+        application.detail =
+            "Installed. The active Google identity remains managed by the official "
+            "application/system keyring.";
     } else {
-        application.detail = "Not detected by known install paths. Multi-profile auth selection is not exposed as a supported external API.";
+        application.detail =
+            "Not detected by known install paths. Multi-profile auth selection is "
+            "not exposed as a stable external API.";
     }
     return application;
 }
