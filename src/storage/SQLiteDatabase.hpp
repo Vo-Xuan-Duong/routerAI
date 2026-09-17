@@ -36,7 +36,6 @@ public:
         std::size_t limit = 50) const;
 
     void saveRoutingGroup(const RoutingGroup& group);
-    void deleteRoutingGroup(const std::string& groupId);
     std::optional<RoutingGroup> findRoutingGroup(const std::string& groupId) const;
     std::vector<RoutingGroup> listRoutingGroups() const;
     void updateRoutingGroupCursor(const std::string& groupId, int lastIndex);
