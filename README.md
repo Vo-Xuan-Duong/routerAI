@@ -2,7 +2,7 @@
 
 Interactive multi-provider AI account/runtime manager and localhost router written in C++20.
 
-Current release-candidate version: **0.6.0**.
+Current verified release-candidate version: **0.6.0**.
 
 routerAI separates three concerns:
 
@@ -429,7 +429,9 @@ workflow_dispatch
 pull_request
 ```
 
-This keeps ordinary development commits from repeatedly consuming GitHub Actions minutes. Use one manual/PR verification run when a development batch is ready.
+This keeps ordinary development commits from repeatedly consuming GitHub Actions minutes.
+
+Release-candidate verification run **#138** passed on both Windows and Linux: Configure, Build, and CTest all succeeded.
 
 ## Architecture
 
@@ -460,7 +462,7 @@ This keeps ordinary development commits from repeatedly consuming GitHub Actions
     app-server          CLI / Gemini API      General API
 ```
 
-## 0.6.0 release-candidate status
+## 0.6.0 verified release-candidate status
 
 ```text
 [done] SQLite persistence and additive migration
@@ -487,8 +489,8 @@ This keeps ordinary development commits from repeatedly consuming GitHub Actions
 [done] Desktop application detection/launch
 [done] Windows configure/build/test/run helper scripts
 [done] Manual/PR-only GitHub Actions workflow
-
-[verification] one Windows/Linux CI run for the final release-candidate HEAD
+[done] Windows CI verification
+[done] Linux CI verification
 
 [provider-dependent] stable desktop account/profile switching
 [provider-dependent] Z.ai no-cost credential validation endpoint
