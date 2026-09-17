@@ -50,11 +50,14 @@ private:
     void addAntigravityAccount();
     void addZaiAccount();
     void showRoutingGroups();
+    void createCustomRoutingGroup();
+    void editRoutingGroupMembers(RoutingGroup& group);
     void showLocalApi();
     void showBestAccount();
     void showDoctor();
 
     void showAccountDetails(const Account& account);
+    void showProviderModels(const Account& account);
     void loginAccount(const Account& account);
     void refreshAccount(const Account& account);
     void showQuota(const Account& account);
