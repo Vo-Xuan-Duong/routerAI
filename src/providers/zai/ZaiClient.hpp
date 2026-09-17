@@ -15,6 +15,7 @@ public:
         long timeoutSeconds = 120);
 
     static std::vector<std::string> documentedChatModels();
+    static std::vector<std::string> documentedCodingPlanModels();
 };
 
 }  // namespace routerai
