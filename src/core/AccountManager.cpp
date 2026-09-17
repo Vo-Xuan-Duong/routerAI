@@ -28,22 +28,14 @@ void applyProfile(Account& account, const AccountProfile& profile) {
 }
 
 void appendDetail(std::string& detail, const std::string& extra) {
-    if (extra.empty()) {
-        return;
-    }
-    if (!detail.empty()) {
-        detail += " | ";
-    }
+    if (extra.empty()) return;
+    if (!detail.empty()) detail += " | ";
     detail += extra;
 }
 
 std::optional<AccountStatus> statusFromQuota(const QuotaSnapshot& snapshot) {
-    if (!snapshot.ordinaryUsageAllowed.has_value()) {
-        return std::nullopt;
-    }
-    if (!*snapshot.ordinaryUsageAllowed) {
-        return AccountStatus::Limited;
-    }
+    if (!snapshot.ordinaryUsageAllowed.has_value()) return std::nullopt;
+    if (!*snapshot.ordinaryUsageAllowed) return AccountStatus::Limited;
 
     double highestUsedPercent = 0.0;
     bool reachedSignal = false;
@@ -53,28 +45,17 @@ std::optional<AccountStatus> statusFromQuota(const QuotaSnapshot& snapshot) {
             highestUsedPercent = std::max(highestUsedPercent, window.usedPercent);
         }
     }
-
-    if (reachedSignal || highestUsedPercent >= 90.0) {
-        return AccountStatus::Warning;
-    }
+    if (reachedSignal || highestUsedPercent >= 90.0) return AccountStatus::Warning;
     return AccountStatus::Ready;
 }
 
-std::optional<double> latestUsedPercent(
-    const std::vector<QuotaHistoryEntry>& history) {
-    if (history.empty()) {
-        return std::nullopt;
-    }
-
+std::optional<double> latestUsedPercent(const std::vector<QuotaHistoryEntry>& history) {
+    if (history.empty()) return std::nullopt;
     const std::int64_t latestSnapshotId = history.front().snapshotId;
     std::optional<double> highest;
     for (const auto& entry : history) {
-        if (entry.snapshotId != latestSnapshotId) {
-            break;
-        }
-        if (!highest || entry.usedPercent > *highest) {
-            highest = entry.usedPercent;
-        }
+        if (entry.snapshotId != latestSnapshotId) break;
+        if (!highest || entry.usedPercent > *highest) highest = entry.usedPercent;
     }
     return highest;
 }
@@ -82,39 +63,26 @@ std::optional<double> latestUsedPercent(
 std::vector<std::string> parseOpenAiModelIds(const std::string& body) {
     const auto json = nlohmann::json::parse(body);
     std::vector<std::string> models;
-
     const auto data = json.find("data");
     if (data != json.end() && data->is_array()) {
         for (const auto& item : *data) {
-            if (!item.is_object()) {
-                continue;
-            }
+            if (!item.is_object()) continue;
             const auto id = item.find("id");
-            if (id != item.end() && id->is_string()) {
-                models.push_back(id->get<std::string>());
-            }
+            if (id != item.end() && id->is_string()) models.push_back(id->get<std::string>());
         }
     }
-
     return models;
 }
 
-std::string httpFailureDetail(
-    const std::string& provider,
-    const HttpResponse& response) {
-    if (!response.error.empty()) {
-        return provider + " validation failed: " + response.error;
-    }
-    return provider + " validation failed with HTTP " +
-           std::to_string(response.statusCode);
+std::string httpFailureDetail(const std::string& provider, const HttpResponse& response) {
+    if (!response.error.empty()) return provider + " validation failed: " + response.error;
+    return provider + " validation failed with HTTP " + std::to_string(response.statusCode);
 }
 
 void markCredentialFailure(Account& account, const HttpResponse& response) {
-    if (response.statusCode == 401 || response.statusCode == 403) {
-        account.status = AccountStatus::AuthExpired;
-    } else {
-        account.status = AccountStatus::Error;
-    }
+    account.status = response.statusCode == 401 || response.statusCode == 403
+        ? AccountStatus::AuthExpired
+        : AccountStatus::Error;
 }
 
 }  // namespace
@@ -131,11 +99,8 @@ Account AccountManager::addCodexAccount() {
 
 Account AccountManager::addAntigravityAccount() {
     for (const auto& account : database_.listAccounts()) {
-        if (account.provider == "antigravity" && account.providerMode == "consumer-cli") {
-            return account;
-        }
+        if (account.provider == "antigravity" && account.providerMode == "consumer-cli") return account;
     }
-
     AntigravityProvider provider;
     Account account = provider.createPlaceholderAccount(nextAccountId(provider.name()));
     database_.insertAccount(account);
@@ -160,12 +125,9 @@ AccountAuthOutcome AccountManager::configureAntigravityApiKey(
     const std::string& accountId,
     const std::string& apiKey) {
     auto account = database_.findAccount(accountId);
-    if (!account) {
-        throw std::runtime_error("Account not found: " + accountId);
-    }
+    if (!account) throw std::runtime_error("Account not found: " + accountId);
     if (account->provider != "antigravity" || account->providerMode != "api-project") {
-        throw std::runtime_error(
-            "Account is not an Antigravity API project: " + accountId);
+        throw std::runtime_error("Account is not an Antigravity API project: " + accountId);
     }
 
     const HttpResponse validation = AntigravityApiClient::listModels(apiKey);
@@ -173,9 +135,7 @@ AccountAuthOutcome AccountManager::configureAntigravityApiKey(
         markCredentialFailure(*account, validation);
         account->lastError = httpFailureDetail("Gemini API", validation);
         database_.updateAccount(*account);
-        return AccountAuthOutcome{
-            *account,
-            AuthStatus{false, account->lastError}};
+        return {*account, AuthStatus{false, account->lastError}};
     }
 
     const std::string reference = account->id + "-api-key";
@@ -190,12 +150,9 @@ AccountAuthOutcome AccountManager::configureAntigravityApiKey(
     database_.updateAccount(*account);
 
     const auto models = parseOpenAiModelIds(validation.body);
-    return AccountAuthOutcome{
+    return {
         *account,
-        AuthStatus{
-            true,
-            "Gemini API credential validated; " +
-                std::to_string(models.size()) + " models visible"}};
+        AuthStatus{true, "Gemini API credential validated; " + std::to_string(models.size()) + " models visible"}};
 }
 
 AccountAuthOutcome AccountManager::configureZaiApiKey(
@@ -203,9 +160,7 @@ AccountAuthOutcome AccountManager::configureZaiApiKey(
     const std::string& apiKey,
     const std::string& mode) {
     auto account = database_.findAccount(accountId);
-    if (!account) {
-        throw std::runtime_error("Account not found: " + accountId);
-    }
+    if (!account) throw std::runtime_error("Account not found: " + accountId);
     if (account->provider != "zai") {
         throw std::runtime_error("Account is not a Z.ai provider account: " + accountId);
     }
@@ -213,47 +168,27 @@ AccountAuthOutcome AccountManager::configureZaiApiKey(
         throw std::runtime_error("Unsupported Z.ai account mode: " + mode);
     }
 
-    if (mode == "general-api") {
-        const HttpResponse validation = ZaiClient::validateGeneralApiKey(apiKey);
-        if (!validation.succeeded()) {
-            markCredentialFailure(*account, validation);
-            account->lastError = httpFailureDetail("Z.ai", validation);
-            database_.updateAccount(*account);
-            return AccountAuthOutcome{
-                *account,
-                AuthStatus{false, account->lastError}};
-        }
-    }
-
     const std::string reference = account->id + "-api-key";
     credentials_.put(reference, apiKey);
     account->credentialRef = reference;
     account->providerMode = mode;
     account->planType = mode;
-    account->displayName = mode == "coding-plan"
-        ? "Z.ai Coding Plan"
-        : "Z.ai General API";
-    account->status = mode == "coding-plan"
-        ? AccountStatus::Warning
-        : AccountStatus::Ready;
+    account->displayName = mode == "coding-plan" ? "Z.ai Coding Plan" : "Z.ai General API";
+    account->status = AccountStatus::Warning;
     account->lastError.clear();
     account->consecutiveFailures = 0;
     account->cooldownUntilUnix.reset();
     database_.updateAccount(*account);
 
     const std::string detail = mode == "general-api"
-        ? "Z.ai General API credential validated and stored locally"
-        : "Z.ai Coding Plan credential stored locally; public machine-readable validation is not integrated for this mode";
-    return AccountAuthOutcome{*account, AuthStatus{true, detail}};
+        ? "Z.ai General API credential stored; it will be verified by the first documented API request"
+        : "Z.ai Coding Plan credential stored; automatic general-purpose routing is disabled for this mode";
+    return {*account, AuthStatus{true, detail}};
 }
 
-AccountLoginOutcome AccountManager::loginAccount(
-    const std::string& accountId,
-    bool useBrowser) {
+AccountLoginOutcome AccountManager::loginAccount(const std::string& accountId, bool useBrowser) {
     auto account = database_.findAccount(accountId);
-    if (!account) {
-        throw std::runtime_error("Account not found: " + accountId);
-    }
+    if (!account) throw std::runtime_error("Account not found: " + accountId);
 
     LoginResult result;
     if (account->provider == "codex") {
@@ -263,18 +198,13 @@ AccountLoginOutcome AccountManager::loginAccount(
             try {
                 applyProfile(*account, provider.readProfile(*account));
             } catch (const std::exception& exception) {
-                appendDetail(
-                    result.detail,
-                    "profile sync warning: " + std::string(exception.what()));
+                appendDetail(result.detail, "profile sync warning: " + std::string(exception.what()));
             }
         }
-    } else if (account->provider == "antigravity" &&
-               account->providerMode == "consumer-cli") {
+    } else if (account->provider == "antigravity" && account->providerMode == "consumer-cli") {
         AntigravityProvider provider;
         result = provider.login(*account, LoginOptions{});
-        if (result.success) {
-            applyProfile(*account, provider.readProfile(*account));
-        }
+        if (result.success) applyProfile(*account, provider.readProfile(*account));
     } else {
         throw std::runtime_error(
             "Interactive login is not implemented for provider/mode: " +
@@ -282,74 +212,37 @@ AccountLoginOutcome AccountManager::loginAccount(
     }
 
     database_.updateAccount(*account);
-    return AccountLoginOutcome{*account, result};
+    return {*account, result};
 }
 
 AccountAuthOutcome AccountManager::refreshAccountStatus(const std::string& accountId) {
     auto account = database_.findAccount(accountId);
-    if (!account) {
-        throw std::runtime_error("Account not found: " + accountId);
-    }
+    if (!account) throw std::runtime_error("Account not found: " + accountId);
 
     if (account->provider == "zai") {
-        if (account->credentialRef.empty()) {
-            account->status = AccountStatus::AuthExpired;
-            database_.updateAccount(*account);
-            return AccountAuthOutcome{
-                *account,
-                AuthStatus{false, "Z.ai API key is not configured"}};
-        }
-        const auto secret = credentials_.get(account->credentialRef);
-        if (!secret || secret->empty()) {
-            account->status = AccountStatus::AuthExpired;
-            database_.updateAccount(*account);
-            return AccountAuthOutcome{
-                *account,
-                AuthStatus{false, "Z.ai credential is unavailable"}};
-        }
-
-        if (account->providerMode == "general-api") {
-            const HttpResponse validation = ZaiClient::validateGeneralApiKey(*secret);
-            if (!validation.succeeded()) {
-                markCredentialFailure(*account, validation);
-                account->lastError = httpFailureDetail("Z.ai", validation);
-                database_.updateAccount(*account);
-                return AccountAuthOutcome{
-                    *account,
-                    AuthStatus{false, account->lastError}};
-            }
-            account->status = AccountStatus::Ready;
-            account->lastError.clear();
-            database_.updateAccount(*account);
-            return AccountAuthOutcome{
-                *account,
-                AuthStatus{true, "Z.ai General API credential validated"}};
-        }
-
-        account->status = AccountStatus::Warning;
+        const bool configured = !account->credentialRef.empty() && credentials_.exists(account->credentialRef);
+        account->status = configured ? AccountStatus::Warning : AccountStatus::AuthExpired;
         database_.updateAccount(*account);
-        return AccountAuthOutcome{
+        return {
             *account,
             AuthStatus{
-                true,
-                "Z.ai Coding Plan credential exists; validation endpoint is not integrated"}};
+                configured,
+                configured
+                    ? "Z.ai credential is configured; validation occurs on a documented provider request"
+                    : "Z.ai API key is not configured"}};
     }
 
     if (account->provider == "antigravity" && account->providerMode == "api-project") {
         if (account->credentialRef.empty()) {
             account->status = AccountStatus::AuthExpired;
             database_.updateAccount(*account);
-            return AccountAuthOutcome{
-                *account,
-                AuthStatus{false, "Antigravity Gemini API key is not configured"}};
+            return {*account, AuthStatus{false, "Antigravity Gemini API key is not configured"}};
         }
         const auto secret = credentials_.get(account->credentialRef);
         if (!secret || secret->empty()) {
             account->status = AccountStatus::AuthExpired;
             database_.updateAccount(*account);
-            return AccountAuthOutcome{
-                *account,
-                AuthStatus{false, "Antigravity Gemini API credential is unavailable"}};
+            return {*account, AuthStatus{false, "Antigravity Gemini API credential is unavailable"}};
         }
 
         const HttpResponse validation = AntigravityApiClient::listModels(*secret);
@@ -357,17 +250,12 @@ AccountAuthOutcome AccountManager::refreshAccountStatus(const std::string& accou
             markCredentialFailure(*account, validation);
             account->lastError = httpFailureDetail("Gemini API", validation);
             database_.updateAccount(*account);
-            return AccountAuthOutcome{
-                *account,
-                AuthStatus{false, account->lastError}};
+            return {*account, AuthStatus{false, account->lastError}};
         }
-
         account->status = AccountStatus::Ready;
         account->lastError.clear();
         database_.updateAccount(*account);
-        return AccountAuthOutcome{
-            *account,
-            AuthStatus{true, "Antigravity Gemini API credential validated"}};
+        return {*account, AuthStatus{true, "Antigravity Gemini API credential validated"}};
     }
 
     AuthStatus auth;
@@ -375,25 +263,20 @@ AccountAuthOutcome AccountManager::refreshAccountStatus(const std::string& accou
         CodexProvider provider;
         auth = provider.authStatus(*account);
         if (auth.authenticated) {
-            if (account->status == AccountStatus::AuthExpired ||
-                account->status == AccountStatus::Error) {
+            if (account->status == AccountStatus::AuthExpired || account->status == AccountStatus::Error) {
                 account->status = AccountStatus::Ready;
             }
             try {
                 applyProfile(*account, provider.readProfile(*account));
             } catch (const std::exception& exception) {
-                appendDetail(
-                    auth.detail,
-                    "profile sync warning: " + std::string(exception.what()));
+                appendDetail(auth.detail, "profile sync warning: " + std::string(exception.what()));
             }
         }
-    } else if (account->provider == "antigravity" &&
-               account->providerMode == "consumer-cli") {
+    } else if (account->provider == "antigravity" && account->providerMode == "consumer-cli") {
         AntigravityProvider provider;
         auth = provider.authStatus(*account);
         if (auth.authenticated) {
-            if (account->status == AccountStatus::AuthExpired ||
-                account->status == AccountStatus::Error) {
+            if (account->status == AccountStatus::AuthExpired || account->status == AccountStatus::Error) {
                 account->status = AccountStatus::Ready;
             }
             applyProfile(*account, provider.readProfile(*account));
@@ -405,65 +288,48 @@ AccountAuthOutcome AccountManager::refreshAccountStatus(const std::string& accou
     }
 
     if (!auth.authenticated) {
-        if (auth.detail.find("not installed") != std::string::npos) {
-            account->status = AccountStatus::Error;
-        } else {
-            account->status = AccountStatus::AuthExpired;
-        }
+        account->status = auth.detail.find("not installed") != std::string::npos
+            ? AccountStatus::Error
+            : AccountStatus::AuthExpired;
     }
-
     database_.updateAccount(*account);
-    return AccountAuthOutcome{*account, auth};
+    return {*account, auth};
 }
 
 void AccountManager::refreshAllAccountStatuses() {
     const auto accounts = database_.listAccounts();
     for (const auto& account : accounts) {
-        if (account.provider == "codex" ||
-            account.provider == "antigravity" ||
-            account.provider == "zai") {
+        if (account.provider == "codex" || account.provider == "antigravity" || account.provider == "zai") {
             refreshAccountStatus(account.id);
         }
     }
 }
 
-ProviderModelsOutcome AccountManager::discoverModels(
-    const std::string& accountId) const {
+ProviderModelsOutcome AccountManager::discoverModels(const std::string& accountId) const {
     const auto account = database_.findAccount(accountId);
-    if (!account) {
-        throw std::runtime_error("Account not found: " + accountId);
-    }
+    if (!account) throw std::runtime_error("Account not found: " + accountId);
 
-    if (account->provider == "antigravity" &&
-        account->providerMode == "api-project") {
-        if (account->credentialRef.empty()) {
-            return {false, {}, "Gemini API key is not configured"};
-        }
+    if (account->provider == "antigravity" && account->providerMode == "api-project") {
+        if (account->credentialRef.empty()) return {false, {}, "Gemini API key is not configured"};
         const auto secret = credentials_.get(account->credentialRef);
-        if (!secret || secret->empty()) {
-            return {false, {}, "Gemini API credential is unavailable"};
-        }
+        if (!secret || secret->empty()) return {false, {}, "Gemini API credential is unavailable"};
 
         const HttpResponse response = AntigravityApiClient::listModels(*secret);
-        if (!response.succeeded()) {
-            return {false, {}, httpFailureDetail("Gemini API", response)};
-        }
+        if (!response.succeeded()) return {false, {}, httpFailureDetail("Gemini API", response)};
 
         const auto visibleModels = parseOpenAiModelIds(response.body);
         const auto supported = AntigravityApiClient::supportedAgentModels();
         std::vector<std::string> compatible;
         for (const auto& model : supported) {
-            if (std::find(visibleModels.begin(), visibleModels.end(), model) !=
-                visibleModels.end()) {
+            if (std::find(visibleModels.begin(), visibleModels.end(), model) != visibleModels.end()) {
                 compatible.push_back(model);
             }
         }
-
         if (compatible.empty()) {
             return {
                 true,
                 supported,
-                "Gemini model listing succeeded; using documented Antigravity agent model set because no direct overlap was reported"};
+                "Gemini model listing succeeded; showing the documented Antigravity agent model set"};
         }
         return {
             true,
@@ -476,29 +342,25 @@ ProviderModelsOutcome AccountManager::discoverModels(
             true,
             ZaiClient::documentedChatModels(),
             account->providerMode == "coding-plan"
-                ? "Z.ai Coding Plan documented model list"
-                : "Z.ai public API does not expose a model-list endpoint; showing documented chat models"};
+                ? "Z.ai Coding Plan model names are sourced from public tool/provider documentation"
+                : "Z.ai public API reference does not expose models.list; showing documented chat-completion models"};
     }
 
     return {
         false,
         {},
-        "Model discovery is not implemented for " + account->provider +
-            "/" + account->providerMode};
+        "Model discovery is not implemented for " + account->provider + "/" + account->providerMode};
 }
 
 QuotaSnapshot AccountManager::readQuota(const std::string& accountId) {
     const auto account = database_.findAccount(accountId);
-    if (!account) {
-        throw std::runtime_error("Account not found: " + accountId);
-    }
+    if (!account) throw std::runtime_error("Account not found: " + accountId);
 
     QuotaSnapshot snapshot;
     if (account->provider == "codex") {
         CodexProvider provider;
         snapshot = provider.readQuota(*account);
-    } else if (account->provider == "antigravity" &&
-               account->providerMode == "consumer-cli") {
+    } else if (account->provider == "antigravity" && account->providerMode == "consumer-cli") {
         AntigravityProvider provider;
         snapshot = provider.readQuota(*account);
     } else if (account->provider == "zai") {
@@ -506,45 +368,34 @@ QuotaSnapshot AccountManager::readQuota(const std::string& accountId) {
         snapshot = provider.readQuota(*account);
     } else {
         throw std::runtime_error(
-            "Quota reads are not implemented for provider/mode: " +
-            account->provider + "/" + account->providerMode);
+            "Quota reads are not implemented for provider/mode: " + account->provider + "/" + account->providerMode);
     }
 
     database_.recordQuotaSnapshot(accountId, snapshot);
-
     if (const auto derivedStatus = statusFromQuota(snapshot)) {
         Account updated = *account;
         updated.status = *derivedStatus;
         database_.updateAccount(updated);
     }
-
     return snapshot;
 }
 
 std::vector<QuotaHistoryEntry> AccountManager::listQuotaHistory(
     const std::string& accountId,
     std::size_t limit) const {
-    if (!database_.findAccount(accountId)) {
-        throw std::runtime_error("Account not found: " + accountId);
-    }
+    if (!database_.findAccount(accountId)) throw std::runtime_error("Account not found: " + accountId);
     return database_.listQuotaHistory(accountId, limit);
 }
 
-std::optional<RoutingCandidate> AccountManager::selectAccount(
-    const std::string& provider) const {
+std::optional<RoutingCandidate> AccountManager::selectAccount(const std::string& provider) const {
     std::vector<RoutingCandidate> candidates;
     for (const auto& account : database_.listAccounts()) {
-        if (account.provider != provider) {
-            continue;
-        }
-
+        if (account.provider != provider) continue;
         RoutingCandidate candidate;
         candidate.account = account;
-        candidate.latestUsedPercent = latestUsedPercent(
-            database_.listQuotaHistory(account.id, 100));
+        candidate.latestUsedPercent = latestUsedPercent(database_.listQuotaHistory(account.id, 100));
         candidates.push_back(std::move(candidate));
     }
-
     AccountSelector selector;
     return selector.select(candidates);
 }
@@ -564,21 +415,15 @@ std::size_t AccountManager::countAccounts() const {
 std::string AccountManager::nextAccountId(const std::string& provider) const {
     const auto accounts = database_.listAccounts();
     std::size_t highest = 0;
-
     const std::string prefix = provider + '-';
     for (const auto& account : accounts) {
-        if (!account.id.starts_with(prefix)) {
-            continue;
-        }
-
+        if (!account.id.starts_with(prefix)) continue;
         try {
             const auto suffix = account.id.substr(prefix.size());
             highest = std::max(highest, static_cast<std::size_t>(std::stoul(suffix)));
         } catch (...) {
-            // Ignore manually named accounts that do not use the numeric convention.
         }
     }
-
     std::ostringstream id;
     id << provider << '-' << std::setw(2) << std::setfill('0') << (highest + 1);
     return id.str();
