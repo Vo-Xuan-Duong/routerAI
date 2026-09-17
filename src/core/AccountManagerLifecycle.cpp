@@ -11,12 +11,9 @@ Account AccountManager::setAccountEnabled(const std::string& accountId, bool ena
         throw std::runtime_error("Account not found: " + accountId);
     }
 
+    // enabled is an operator-controlled routing switch. Keep auth/quota health
+    // intact so re-enabling an account does not destroy its last known state.
     account->enabled = enabled;
-    if (!enabled) {
-        account->status = AccountStatus::Disabled;
-    } else if (account->status == AccountStatus::Disabled) {
-        account->status = AccountStatus::AuthExpired;
-    }
     database_.updateAccount(*account);
     return *account;
 }
