@@ -18,28 +18,18 @@ namespace routerai {
 namespace {
 
 std::string messageContent(const nlohmann::json& message) {
-    if (!message.contains("content") || message.at("content").is_null()) {
-        return {};
-    }
+    if (!message.contains("content") || message.at("content").is_null()) return {};
     const auto& content = message.at("content");
-    if (content.is_string()) {
-        return content.get<std::string>();
-    }
-    if (!content.is_array()) {
-        return {};
-    }
+    if (content.is_string()) return content.get<std::string>();
+    if (!content.is_array()) return {};
 
     std::string text;
     for (const auto& part : content) {
-        if (!part.is_object()) {
-            continue;
-        }
+        if (!part.is_object()) continue;
         const std::string type = part.value("type", std::string{});
         if ((type == "text" || type == "input_text") &&
             part.contains("text") && part.at("text").is_string()) {
-            if (!text.empty()) {
-                text += '\n';
-            }
+            if (!text.empty()) text += '\n';
             text += part.at("text").get<std::string>();
         }
     }
@@ -59,33 +49,23 @@ CodexPrompt toCodexPrompt(const nlohmann::json& request) {
 
     CodexPrompt output;
     for (const auto& message : request.at("messages")) {
-        if (!message.is_object()) {
-            continue;
-        }
+        if (!message.is_object()) continue;
         const std::string role = message.value("role", std::string{});
         const std::string content = messageContent(message);
-        if (content.empty()) {
-            continue;
-        }
+        if (content.empty()) continue;
 
         if (role == "system") {
-            if (!output.baseInstructions.empty()) {
-                output.baseInstructions += "\n\n";
-            }
+            if (!output.baseInstructions.empty()) output.baseInstructions += "\n\n";
             output.baseInstructions += content;
             continue;
         }
         if (role == "developer") {
-            if (!output.developerInstructions.empty()) {
-                output.developerInstructions += "\n\n";
-            }
+            if (!output.developerInstructions.empty()) output.developerInstructions += "\n\n";
             output.developerInstructions += content;
             continue;
         }
 
-        if (!output.prompt.empty()) {
-            output.prompt += "\n\n";
-        }
+        if (!output.prompt.empty()) output.prompt += "\n\n";
         output.prompt += role.empty() ? "user" : role;
         output.prompt += ":\n";
         output.prompt += content;
@@ -98,12 +78,8 @@ CodexPrompt toCodexPrompt(const nlohmann::json& request) {
 }
 
 std::string combinedInstructions(const CodexPrompt& prompt) {
-    if (prompt.baseInstructions.empty()) {
-        return prompt.developerInstructions;
-    }
-    if (prompt.developerInstructions.empty()) {
-        return prompt.baseInstructions;
-    }
+    if (prompt.baseInstructions.empty()) return prompt.developerInstructions;
+    if (prompt.developerInstructions.empty()) return prompt.baseInstructions;
     return prompt.baseInstructions + "\n\n" + prompt.developerInstructions;
 }
 
@@ -122,44 +98,23 @@ nlohmann::json openAiTextResponse(
         {"object", "chat.completion"},
         {"created", static_cast<std::int64_t>(std::time(nullptr))},
         {"model", model.empty() ? "router" : model},
-        {"choices",
-         nlohmann::json::array({
-             {
-                 {"index", 0},
-                 {"message", {{"role", "assistant"}, {"content", text}}},
-                 {"finish_reason", finishReason},
-             },
-         })},
-        {"usage",
-         {
-             {"prompt_tokens", promptTokens},
-             {"completion_tokens", completionTokens},
-             {"total_tokens", totalTokens},
-         }},
+        {"choices", nlohmann::json::array({{{"index", 0}, {"message", {{"role", "assistant"}, {"content", text}}}, {"finish_reason", finishReason}}})},
+        {"usage", {{"prompt_tokens", promptTokens}, {"completion_tokens", completionTokens}, {"total_tokens", totalTokens}}},
     };
 }
 
 nlohmann::json openAiResponse(
     const CodexCompletionResult& completion,
     const std::string& requestedModel) {
-    const std::string model = completion.model.empty()
-        ? requestedModel
-        : completion.model;
-    return openAiTextResponse(
-        completion.text,
-        model.empty() ? "codex" : model,
-        completion.turnId);
+    const std::string model = completion.model.empty() ? requestedModel : completion.model;
+    return openAiTextResponse(completion.text, model.empty() ? "codex" : model, completion.turnId);
 }
 
 CompletionRouteResult jsonError(long status, const std::string& message) {
     return CompletionRouteResult{
         status,
-        nlohmann::json({
-            {"error", {{"message", message}, {"type", "router_error"}}},
-        }).dump(),
-        "application/json",
-        {},
-        {},
+        nlohmann::json({{"error", {{"message", message}, {"type", "router_error"}}}}).dump(),
+        "application/json", {}, {},
     };
 }
 
@@ -169,59 +124,38 @@ bool retryableStatus(long status) {
 
 std::string interactionOutputText(const nlohmann::json& interaction) {
     const auto steps = interaction.find("steps");
-    if (steps == interaction.end() || !steps->is_array()) {
-        return {};
-    }
+    if (steps == interaction.end() || !steps->is_array()) return {};
 
     std::string latest;
     for (const auto& step : *steps) {
-        if (!step.is_object() || step.value("type", std::string{}) != "model_output") {
-            continue;
-        }
+        if (!step.is_object() || step.value("type", std::string{}) != "model_output") continue;
         const auto content = step.find("content");
-        if (content == step.end() || !content->is_array()) {
-            continue;
-        }
+        if (content == step.end() || !content->is_array()) continue;
 
         std::string current;
         for (const auto& part : *content) {
-            if (!part.is_object() || part.value("type", std::string{}) != "text") {
-                continue;
-            }
+            if (!part.is_object() || part.value("type", std::string{}) != "text") continue;
             const auto text = part.find("text");
             if (text != part.end() && text->is_string()) {
-                if (!current.empty()) {
-                    current += '\n';
-                }
+                if (!current.empty()) current += '\n';
                 current += text->get<std::string>();
             }
         }
-        if (!current.empty()) {
-            latest = std::move(current);
-        }
+        if (!current.empty()) latest = std::move(current);
     }
     return latest;
 }
 
-std::int64_t usageValue(
-    const nlohmann::json& interaction,
-    const char* key) {
+std::int64_t usageValue(const nlohmann::json& interaction, const char* key) {
     const auto usage = interaction.find("usage");
-    if (usage == interaction.end() || !usage->is_object()) {
-        return 0;
-    }
+    if (usage == interaction.end() || !usage->is_object()) return 0;
     const auto value = usage->find(key);
-    if (value == usage->end() ||
-        (!value->is_number_integer() && !value->is_number_unsigned())) {
-        return 0;
-    }
+    if (value == usage->end() || (!value->is_number_integer() && !value->is_number_unsigned())) return 0;
     return value->get<std::int64_t>();
 }
 
 bool interactionHasUsableResult(const std::string& status) {
-    return status == "completed" ||
-           status == "incomplete" ||
-           status == "budget_exceeded";
+    return status == "completed" || status == "incomplete" || status == "budget_exceeded";
 }
 
 }  // namespace
@@ -241,18 +175,11 @@ CompletionRouteResult CompletionRouter::chatCompletions(
     } catch (const nlohmann::json::parse_error& error) {
         return jsonError(400, "Invalid JSON: " + std::string(error.what()));
     }
-
-    if (!request.is_object()) {
-        return jsonError(400, "Request body must be a JSON object");
-    }
+    if (!request.is_object()) return jsonError(400, "Request body must be a JSON object");
 
     const auto group = routing_.findGroup(groupId);
-    if (!group) {
-        return jsonError(404, "Routing group not found: " + groupId);
-    }
-    if (!group->enabled) {
-        return jsonError(503, "Routing group is disabled: " + groupId);
-    }
+    if (!group) return jsonError(404, "Routing group not found: " + groupId);
+    if (!group->enabled) return jsonError(503, "Routing group is disabled: " + groupId);
 
     std::vector<std::string> attemptedAccountIds;
     attemptedAccountIds.reserve(group->accountIds.size());
@@ -261,9 +188,7 @@ CompletionRouteResult CompletionRouter::chatCompletions(
 
     while (attemptedAccountIds.size() < group->accountIds.size()) {
         const auto decision = routing_.select(groupId, attemptedAccountIds);
-        if (!decision) {
-            break;
-        }
+        if (!decision) break;
 
         const Account account = decision->candidate.account;
         attemptedAccountIds.push_back(account.id);
@@ -292,11 +217,9 @@ CompletionRouteResult CompletionRouter::chatCompletions(
                     continue;
                 }
 
-                const std::string selectedModel =
-                    openai_compat::resolveProviderModel(request, "zai");
+                const std::string selectedModel = openai_compat::resolveProviderModel(request, "zai");
                 if (selectedModel.empty()) {
-                    lastError =
-                        "Z.ai requires a provider model. Set model to a Z.ai model or provide router.models.zai.";
+                    lastError = "Z.ai requires a provider model. Set model to a Z.ai model or provide router.models.zai.";
                     requestConfigurationError = lastError;
                     continue;
                 }
@@ -306,12 +229,16 @@ CompletionRouteResult CompletionRouter::chatCompletions(
                 outgoing["model"] = selectedModel;
                 outgoing["stream"] = false;
 
-                const HttpResponse response = ZaiClient::chatCompletions(
-                    *apiKey,
-                    outgoing.dump());
-
+                const HttpResponse response = ZaiClient::chatCompletions(*apiKey, outgoing.dump());
                 if (response.succeeded()) {
                     routing_.recordSuccess(account.id);
+                    if (auto verified = database_.findAccount(account.id)) {
+                        if (verified->status == AccountStatus::Warning) {
+                            verified->status = AccountStatus::Ready;
+                            verified->lastError.clear();
+                            database_.updateAccount(*verified);
+                        }
+                    }
                     return CompletionRouteResult{
                         response.statusCode,
                         response.body,
@@ -343,10 +270,7 @@ CompletionRouteResult CompletionRouter::chatCompletions(
                     };
                 }
 
-                routing_.recordFailure(
-                    account.id,
-                    lastError,
-                    static_cast<std::int64_t>(std::time(nullptr)));
+                routing_.recordFailure(account.id, lastError, static_cast<std::int64_t>(std::time(nullptr)));
                 continue;
             }
 
@@ -376,25 +300,15 @@ CompletionRouteResult CompletionRouter::chatCompletions(
                     {"environment", "remote"},
                     {"stream", false},
                 };
-
                 const std::string instructions = combinedInstructions(prompt);
-                if (!instructions.empty()) {
-                    outgoing["system_instruction"] = instructions;
-                }
+                if (!instructions.empty()) outgoing["system_instruction"] = instructions;
 
-                const std::string modelOverride =
-                    openai_compat::resolveProviderModelOverride(request, "antigravity");
+                const std::string modelOverride = openai_compat::resolveProviderModelOverride(request, "antigravity");
                 if (!modelOverride.empty()) {
-                    outgoing["agent_config"] = {
-                        {"type", "antigravity"},
-                        {"model", modelOverride},
-                    };
+                    outgoing["agent_config"] = {{"type", "antigravity"}, {"model", modelOverride}};
                 }
 
-                const HttpResponse response = AntigravityApiClient::createInteraction(
-                    *apiKey,
-                    outgoing.dump());
-
+                const HttpResponse response = AntigravityApiClient::createInteraction(*apiKey, outgoing.dump());
                 if (!response.succeeded()) {
                     lastError = response.error.empty()
                         ? "Antigravity API HTTP " + std::to_string(response.statusCode)
@@ -407,7 +321,6 @@ CompletionRouteResult CompletionRouter::chatCompletions(
                         database_.updateAccount(updated);
                         continue;
                     }
-
                     if (response.error.empty() && !retryableStatus(response.statusCode)) {
                         return CompletionRouteResult{
                             response.statusCode,
@@ -417,23 +330,15 @@ CompletionRouteResult CompletionRouter::chatCompletions(
                             account.provider,
                         };
                     }
-
-                    routing_.recordFailure(
-                        account.id,
-                        lastError,
-                        static_cast<std::int64_t>(std::time(nullptr)));
+                    routing_.recordFailure(account.id, lastError, static_cast<std::int64_t>(std::time(nullptr)));
                     continue;
                 }
 
                 const auto interaction = nlohmann::json::parse(response.body);
-                const std::string interactionStatus =
-                    interaction.value("status", std::string{});
+                const std::string interactionStatus = interaction.value("status", std::string{});
                 if (!interactionHasUsableResult(interactionStatus)) {
                     lastError = "Antigravity interaction finished with status: " + interactionStatus;
-                    routing_.recordFailure(
-                        account.id,
-                        lastError,
-                        static_cast<std::int64_t>(std::time(nullptr)));
+                    routing_.recordFailure(account.id, lastError, static_cast<std::int64_t>(std::time(nullptr)));
                     continue;
                 }
 
@@ -441,10 +346,7 @@ CompletionRouteResult CompletionRouter::chatCompletions(
                 if (text.empty()) {
                     lastError = "Antigravity interaction returned no text output";
                     if (interactionStatus == "completed") {
-                        routing_.recordFailure(
-                            account.id,
-                            lastError,
-                            static_cast<std::int64_t>(std::time(nullptr)));
+                        routing_.recordFailure(account.id, lastError, static_cast<std::int64_t>(std::time(nullptr)));
                         continue;
                     }
                     return jsonError(422, lastError);
@@ -453,12 +355,9 @@ CompletionRouteResult CompletionRouter::chatCompletions(
                 routing_.recordSuccess(account.id);
                 const std::string responseModel = interaction.value(
                     "model",
-                    modelOverride.empty()
-                        ? AntigravityApiClient::agentName()
-                        : modelOverride);
+                    modelOverride.empty() ? AntigravityApiClient::agentName() : modelOverride);
                 const std::string interactionId = interaction.value("id", std::string{});
-                const std::string finishReason =
-                    interactionStatus == "completed" ? "stop" : "length";
+                const std::string finishReason = interactionStatus == "completed" ? "stop" : "length";
                 return CompletionRouteResult{
                     200,
                     openAiTextResponse(
@@ -477,8 +376,7 @@ CompletionRouteResult CompletionRouter::chatCompletions(
 
             if (account.provider == "codex") {
                 const CodexPrompt prompt = toCodexPrompt(request);
-                const std::string model =
-                    openai_compat::resolveProviderModel(request, "codex");
+                const std::string model = openai_compat::resolveProviderModel(request, "codex");
                 CodexAppServerClient client(account.runtimeHome);
                 const CodexCompletionResult completion = client.runPrompt(
                     prompt.prompt,
@@ -486,7 +384,6 @@ CompletionRouteResult CompletionRouter::chatCompletions(
                     prompt.baseInstructions,
                     prompt.developerInstructions);
                 routing_.recordSuccess(account.id);
-
                 return CompletionRouteResult{
                     200,
                     openAiResponse(completion, model).dump(),
@@ -499,16 +396,11 @@ CompletionRouteResult CompletionRouter::chatCompletions(
             lastError = "Provider execution is not implemented: " + account.provider;
         } catch (const std::exception& exception) {
             lastError = exception.what();
-            routing_.recordFailure(
-                account.id,
-                lastError,
-                static_cast<std::int64_t>(std::time(nullptr)));
+            routing_.recordFailure(account.id, lastError, static_cast<std::int64_t>(std::time(nullptr)));
         }
     }
 
-    if (requestConfigurationError) {
-        return jsonError(400, *requestConfigurationError);
-    }
+    if (requestConfigurationError) return jsonError(400, *requestConfigurationError);
     return jsonError(503, lastError);
 }
 
