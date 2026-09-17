@@ -125,7 +125,11 @@ int main() {
         require(contains(mixed->accountIds, "zai-01"), "Z.ai General API account should enter mixed API pool");
         require(contains(mixed->accountIds, "antigravity-api-01"), "Antigravity API project should enter mixed API pool");
 
-        require(routing.groupSupportsCompletions(*codex), "manual Codex group should be executable through the Codex runtime");
+        require(!routing.groupSupportsCompletions(*codex), "manual Codex group without a selected account must not be advertised");
+        routerai::RoutingGroup selectedCodex = *codex;
+        selectedCodex.manualAccountId = "codex-01";
+        routing.saveGroup(selectedCodex);
+        require(routing.groupSupportsCompletions(selectedCodex), "manual Codex group should be executable after selecting an account");
         require(!routing.groupSupportsCompletions(*antigravityConsumer), "Antigravity consumer quota/profile group must not be advertised as a completion backend");
         require(routing.groupSupportsCompletions(*antigravityApi), "Antigravity API pool must be executable");
         require(routing.groupSupportsCompletions(*zai), "Z.ai API pool must be executable");
