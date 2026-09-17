@@ -6,6 +6,12 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/Version.hpp.in
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/Version.hpp
+    @ONLY
+)
+
 find_package(CURL REQUIRED)
 find_package(httplib CONFIG REQUIRED)
 find_package(ftxui CONFIG REQUIRED)
@@ -41,7 +47,10 @@ add_executable(router
     src/ui/TerminalAppDesktop.cpp
 )
 
-target_include_directories(router PRIVATE src)
+target_include_directories(router PRIVATE
+    src
+    ${CMAKE_CURRENT_BINARY_DIR}/generated
+)
 
 target_link_libraries(router PRIVATE
     CURL::libcurl
@@ -154,7 +163,10 @@ if(BUILD_TESTING)
         src/system/DuplexProcess.cpp
         src/system/ProcessRunner.cpp
     )
-    target_include_directories(router_local_api_tests PRIVATE src)
+    target_include_directories(router_local_api_tests PRIVATE
+        src
+        ${CMAKE_CURRENT_BINARY_DIR}/generated
+    )
     target_link_libraries(router_local_api_tests PRIVATE
         CURL::libcurl
         httplib::httplib
