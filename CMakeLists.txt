@@ -119,7 +119,10 @@ if(BUILD_TESTING)
         src/providers/zai/ZaiClient.cpp
         src/providers/zai/ZaiProvider.cpp
     )
-    target_include_directories(router_provider_metadata_tests PRIVATE src)
+    target_include_directories(router_provider_metadata_tests PRIVATE
+        src
+        ${CMAKE_CURRENT_BINARY_DIR}/generated
+    )
     target_link_libraries(router_provider_metadata_tests PRIVATE
         CURL::libcurl
     )
@@ -128,7 +131,10 @@ if(BUILD_TESTING)
         tests/HttpClientStreamTests.cpp
         src/net/HttpClient.cpp
     )
-    target_include_directories(router_http_stream_tests PRIVATE src)
+    target_include_directories(router_http_stream_tests PRIVATE
+        src
+        ${CMAKE_CURRENT_BINARY_DIR}/generated
+    )
     target_link_libraries(router_http_stream_tests PRIVATE
         CURL::libcurl
         httplib::httplib
