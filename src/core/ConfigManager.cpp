@@ -2,6 +2,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
+#include <cctype>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
@@ -16,6 +18,14 @@ RoutingStrategy parseStrategy(const std::string& value) {
     if (value == "ROUND_ROBIN") return RoutingStrategy::RoundRobin;
     if (value == "MANUAL") return RoutingStrategy::Manual;
     return RoutingStrategy::HealthFirst;
+}
+
+bool validIdentifier(const std::string& value) {
+    if (value.empty() || value.size() > 128) return false;
+    for (const unsigned char ch : value) {
+        if (!std::isalnum(ch) && ch != '-' && ch != '_' && ch != '.') return false;
+    }
+    return true;
 }
 
 std::string defaultRuntimeHome(const Account& account) {
@@ -74,7 +84,7 @@ ConfigTransferResult applyImport(
         if (!item.is_object()) continue;
         const std::string id = item.value("id", std::string{});
         const std::string provider = item.value("provider", std::string{});
-        if (id.empty() || provider.empty()) continue;
+        if (!validIdentifier(id) || !validIdentifier(provider)) continue;
 
         const auto existing = database.findAccount(id);
         Account account;
@@ -92,11 +102,10 @@ ConfigTransferResult applyImport(
         account.displayName = item.value("display_name", account.displayName);
         account.email = item.value("email", account.email);
         account.planType = item.value("plan_type", account.planType);
-        account.priority = item.value("priority", account.priority);
+        account.priority = std::clamp(item.value("priority", account.priority), -100000, 100000);
         account.enabled = item.value("enabled", account.enabled);
         if (account.runtimeHome.empty()) account.runtimeHome = defaultRuntimeHome(account);
-        if (!account.enabled) account.status = AccountStatus::Disabled;
-        else if (!existing) account.status = AccountStatus::AuthExpired;
+        if (!existing) account.status = AccountStatus::AuthExpired;
 
         // credentialRef intentionally comes only from an existing local row.
         // It is never accepted from exported/imported JSON.
@@ -116,7 +125,7 @@ ConfigTransferResult applyImport(
         if (!item.is_object()) continue;
         RoutingGroup group;
         group.id = item.value("id", std::string{});
-        if (group.id.empty()) continue;
+        if (!validIdentifier(group.id)) continue;
         group.displayName = item.value("display_name", group.id);
         group.strategy = parseStrategy(item.value("strategy", std::string("HEALTH_FIRST")));
         group.enabled = item.value("enabled", true);
