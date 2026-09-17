@@ -50,6 +50,9 @@ public:
     AccountAuthOutcome refreshAccountStatus(const std::string& accountId);
     void refreshAllAccountStatuses();
 
+    Account setAccountEnabled(const std::string& accountId, bool enabled);
+    void removeAccount(const std::string& accountId);
+
     ProviderModelsOutcome discoverModels(const std::string& accountId) const;
 
     QuotaSnapshot readQuota(const std::string& accountId);

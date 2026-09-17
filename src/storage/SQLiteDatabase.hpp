@@ -2,6 +2,7 @@
 
 #include "core/Account.hpp"
 #include "core/Quota.hpp"
+#include "core/RequestLog.hpp"
 #include "core/Routing.hpp"
 
 #include <cstddef>
@@ -24,6 +25,7 @@ public:
     void initialize();
     void insertAccount(const Account& account);
     void updateAccount(const Account& account);
+    void deleteAccount(const std::string& accountId);
     std::optional<Account> findAccount(const std::string& accountId) const;
     std::vector<Account> listAccounts() const;
     std::size_t countAccounts() const;
@@ -34,6 +36,10 @@ public:
     std::vector<QuotaHistoryEntry> listQuotaHistory(
         const std::string& accountId,
         std::size_t limit = 50) const;
+
+    void recordRequestLog(const RequestLogEntry& entry);
+    std::vector<RequestLogEntry> listRequestLogs(std::size_t limit = 200) const;
+    void clearRequestLogs();
 
     void saveRoutingGroup(const RoutingGroup& group);
     std::optional<RoutingGroup> findRoutingGroup(const std::string& groupId) const;
