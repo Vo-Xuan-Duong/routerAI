@@ -102,6 +102,16 @@ CompletionStreamResult streamError(long status, const std::string& message) {
     };
 }
 
+bool emitTerminalError(
+    const CompletionStreamCallback& onChunk,
+    const std::string& message) {
+    const nlohmann::json payload = {
+        {"error", {{"message", message}, {"type", "provider_stream_error"}}},
+    };
+    const std::string event = "event: error\ndata: " + payload.dump() + "\n\n";
+    return onChunk(event) && onChunk("data: [DONE]\n\n");
+}
+
 bool retryableStatus(long status) {
     return status == 408 || status == 409 || status == 429 || status >= 500;
 }
@@ -268,13 +278,8 @@ bool emitAntigravityEvent(
         state.error = error != payload.end() && error->is_object()
             ? error->value("message", std::string("Antigravity stream failed"))
             : std::string("Antigravity stream failed");
-        const nlohmann::json errorPayload = {
-            {"error", {{"message", state.error}, {"type", "provider_stream_error"}}},
-        };
-        const std::string errorEvent = "event: error\ndata: " + errorPayload.dump() + "\n\n";
-        if (!onChunk(errorEvent)) return false;
+        if (!emitTerminalError(onChunk, state.error)) return false;
         state.emitted = true;
-        if (!onChunk("data: [DONE]\n\n")) return false;
         state.done = true;
         return true;
     }
@@ -414,6 +419,7 @@ CompletionStreamResult CompletionRouter::streamChatCompletions(
                 : response.error;
             if (emitted) {
                 routing_.recordFailure(account.id, lastError, static_cast<std::int64_t>(std::time(nullptr)));
+                (void)emitTerminalError(onChunk, lastError);
                 return CompletionStreamResult{
                     502, lastError, "application/json", account.id, account.provider, "native", true};
             }
@@ -449,6 +455,7 @@ CompletionStreamResult CompletionRouter::streamChatCompletions(
                 continue;
             }
 
+            AntigravitySseState state;
             try {
                 const CodexPrompt prompt = toCodexPrompt(request);
                 nlohmann::json outgoing = {
@@ -466,10 +473,9 @@ CompletionStreamResult CompletionRouter::streamChatCompletions(
                         {"type", "antigravity"},
                         {"model", modelOverride},
                     };
+                    state.model = modelOverride;
                 }
 
-                AntigravitySseState state;
-                if (!modelOverride.empty()) state.model = modelOverride;
                 const HttpResponse response = AntigravityApiClient::createInteractionStream(
                     *apiKey,
                     outgoing.dump(),
@@ -494,6 +500,7 @@ CompletionStreamResult CompletionRouter::streamChatCompletions(
                                 account.id, account.provider, "native", state.emitted};
                         }
                         state.emitted = true;
+                        state.done = true;
                     }
                     routing_.recordSuccess(account.id);
                     return CompletionStreamResult{
@@ -512,6 +519,7 @@ CompletionStreamResult CompletionRouter::streamChatCompletions(
                         : response.error);
                 if (state.emitted) {
                     routing_.recordFailure(account.id, lastError, static_cast<std::int64_t>(std::time(nullptr)));
+                    if (!state.done) (void)emitTerminalError(onChunk, lastError);
                     return CompletionStreamResult{
                         502, lastError, "application/json", account.id, account.provider, "native", true};
                 }
@@ -537,17 +545,22 @@ CompletionStreamResult CompletionRouter::streamChatCompletions(
             } catch (const std::exception& exception) {
                 lastError = exception.what();
                 routing_.recordFailure(account.id, lastError, static_cast<std::int64_t>(std::time(nullptr)));
+                if (state.emitted) {
+                    if (!state.done) (void)emitTerminalError(onChunk, lastError);
+                    return CompletionStreamResult{
+                        502, lastError, "application/json", account.id, account.provider, "native", true};
+                }
                 continue;
             }
         }
 
         if (nativeCodex) {
+            bool emitted = false;
             try {
                 const CodexPrompt prompt = toCodexPrompt(request);
                 const std::string model = openai_compat::resolveProviderModel(request, "codex");
                 const std::string streamId =
                     "chatcmpl-router-codex-" + std::to_string(std::time(nullptr));
-                bool emitted = false;
                 bool firstDelta = true;
                 CodexAppServerClient client(account.runtimeHome);
                 const CodexCompletionResult completion = client.runPromptStreaming(
@@ -570,6 +583,7 @@ CompletionStreamResult CompletionRouter::streamChatCompletions(
                         499, "Stream consumer cancelled", "application/json",
                         account.id, account.provider, "native", emitted};
                 }
+                emitted = true;
                 if (!onChunk("data: [DONE]\n\n")) {
                     return CompletionStreamResult{
                         499, "Stream consumer cancelled", "application/json",
@@ -586,6 +600,11 @@ CompletionStreamResult CompletionRouter::streamChatCompletions(
                         account.id, account.provider, "native", true};
                 }
                 routing_.recordFailure(account.id, lastError, static_cast<std::int64_t>(std::time(nullptr)));
+                if (emitted) {
+                    (void)emitTerminalError(onChunk, lastError);
+                    return CompletionStreamResult{
+                        502, lastError, "application/json", account.id, account.provider, "native", true};
+                }
                 continue;
             }
         }
