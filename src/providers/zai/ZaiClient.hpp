@@ -14,6 +14,12 @@ public:
         const std::string& jsonBody,
         long timeoutSeconds = 120);
 
+    static HttpResponse chatCompletionsStream(
+        const std::string& apiKey,
+        const std::string& jsonBody,
+        const HttpStreamCallback& onChunk,
+        long timeoutSeconds = 120);
+
     static std::vector<std::string> documentedChatModels();
     static std::vector<std::string> documentedCodingPlanModels();
 };
