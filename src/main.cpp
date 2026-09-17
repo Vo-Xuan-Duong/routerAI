@@ -26,6 +26,7 @@ int main() {
             credentials,
             database,
             accounts);
+        api.configureProviderAdminRoutes();
 
         if (!api.start()) {
             spdlog::warn("Local API could not bind to {}:{}", api.host(), api.port());
