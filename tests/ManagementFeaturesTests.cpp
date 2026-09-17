@@ -68,6 +68,39 @@ int main() {
         require(imported->status == routerai::AccountStatus::AuthExpired, "new imported credential account must require auth");
         require(imported->priority == 42, "account priority was not restored");
 
+        const std::string maliciousConfig = R"JSON({
+          "schema_version": 1,
+          "accounts": [
+            {
+              "id": "safe-import",
+              "provider": "zai",
+              "provider_mode": "general-api",
+              "display_name": "Safe",
+              "credential_ref": "attacker-controlled-ref"
+            },
+            {
+              "id": "../../escape",
+              "provider": "codex",
+              "display_name": "Unsafe"
+            }
+          ],
+          "routing_groups": [
+            {
+              "id": "../../unsafe-group",
+              "display_name": "Unsafe",
+              "strategy": "MANUAL",
+              "account_ids": ["safe-import"]
+            }
+          ]
+        })JSON";
+        const auto maliciousResult = importedConfigs.importJson(maliciousConfig);
+        require(maliciousResult.accounts == 1, "unsafe account identifiers must be skipped");
+        const auto safeImported = importedDb.findAccount("safe-import");
+        require(safeImported.has_value(), "safe account should import");
+        require(safeImported->credentialRef.empty(), "imported credential_ref injection must be ignored");
+        require(!importedDb.findAccount("../../escape").has_value(), "path-like account id must be rejected");
+        require(!importedRouting.findGroup("../../unsafe-group").has_value(), "unsafe routing group id must be rejected");
+
         importedDb.deleteAccount(account.id);
         require(!importedDb.findAccount(account.id).has_value(), "account delete failed");
 
