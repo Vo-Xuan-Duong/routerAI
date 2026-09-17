@@ -14,10 +14,6 @@ public:
         const std::string& jsonBody,
         long timeoutSeconds = 120);
 
-    static HttpResponse validateGeneralApiKey(
-        const std::string& apiKey,
-        long timeoutSeconds = 30);
-
     static std::vector<std::string> documentedChatModels();
 };
 
