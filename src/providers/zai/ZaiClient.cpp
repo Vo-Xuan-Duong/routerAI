@@ -29,9 +29,6 @@ HttpResponse ZaiClient::chatCompletions(
 }
 
 std::vector<std::string> ZaiClient::documentedChatModels() {
-    // Public chat-completion model enum from the current Z.ai API reference.
-    // Keep this conservative: additions should follow documented availability
-    // rather than guessing model names from announcements or private endpoints.
     return {
         "glm-5.1",
         "glm-5-turbo",
@@ -46,6 +43,15 @@ std::vector<std::string> ZaiClient::documentedChatModels() {
         "glm-4.5-airx",
         "glm-4.5-flash",
         "glm-4-32b-0414-128k",
+    };
+}
+
+std::vector<std::string> ZaiClient::documentedCodingPlanModels() {
+    return {
+        "glm-5.1",
+        "glm-5-turbo",
+        "glm-4.7",
+        "glm-4.5-air",
     };
 }
 
