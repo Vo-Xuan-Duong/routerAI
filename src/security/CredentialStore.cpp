@@ -3,6 +3,7 @@
 #include <array>
 #include <cctype>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <stdexcept>
 #include <utility>
