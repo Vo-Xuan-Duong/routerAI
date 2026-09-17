@@ -41,6 +41,11 @@ public:
     std::string apiKey() const;
     std::string rotateApiKey();
 
+    // Registers provider setup/login routes used by the embedded Web Admin.
+    // Call once before start(). Kept separate from the core API route setup so
+    // provider-management behavior remains isolated and testable.
+    void configureProviderAdminRoutes();
+
 private:
     CompletionRouter& completions_;
     RoutingManager& routing_;
@@ -54,6 +59,7 @@ private:
     httplib::Server server_;
     std::thread thread_;
     std::atomic<bool> running_{false};
+    bool providerAdminRoutesConfigured_{false};
 
     void configureRoutes();
     void configureAdminRoutes();
