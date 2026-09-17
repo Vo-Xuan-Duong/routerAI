@@ -1,8 +1,12 @@
 #include "core/AccountManager.hpp"
 
+#include "providers/antigravity/AntigravityApiClient.hpp"
 #include "providers/antigravity/AntigravityProvider.hpp"
 #include "providers/codex/CodexProvider.hpp"
+#include "providers/zai/ZaiClient.hpp"
 #include "providers/zai/ZaiProvider.hpp"
+
+#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <iomanip>
@@ -75,6 +79,44 @@ std::optional<double> latestUsedPercent(
     return highest;
 }
 
+std::vector<std::string> parseOpenAiModelIds(const std::string& body) {
+    const auto json = nlohmann::json::parse(body);
+    std::vector<std::string> models;
+
+    const auto data = json.find("data");
+    if (data != json.end() && data->is_array()) {
+        for (const auto& item : *data) {
+            if (!item.is_object()) {
+                continue;
+            }
+            const auto id = item.find("id");
+            if (id != item.end() && id->is_string()) {
+                models.push_back(id->get<std::string>());
+            }
+        }
+    }
+
+    return models;
+}
+
+std::string httpFailureDetail(
+    const std::string& provider,
+    const HttpResponse& response) {
+    if (!response.error.empty()) {
+        return provider + " validation failed: " + response.error;
+    }
+    return provider + " validation failed with HTTP " +
+           std::to_string(response.statusCode);
+}
+
+void markCredentialFailure(Account& account, const HttpResponse& response) {
+    if (response.statusCode == 401 || response.statusCode == 403) {
+        account.status = AccountStatus::AuthExpired;
+    } else {
+        account.status = AccountStatus::Error;
+    }
+}
+
 }  // namespace
 
 AccountManager::AccountManager(SQLiteDatabase& database, CredentialStore& credentials)
@@ -126,6 +168,16 @@ AccountAuthOutcome AccountManager::configureAntigravityApiKey(
             "Account is not an Antigravity API project: " + accountId);
     }
 
+    const HttpResponse validation = AntigravityApiClient::listModels(apiKey);
+    if (!validation.succeeded()) {
+        markCredentialFailure(*account, validation);
+        account->lastError = httpFailureDetail("Gemini API", validation);
+        database_.updateAccount(*account);
+        return AccountAuthOutcome{
+            *account,
+            AuthStatus{false, account->lastError}};
+    }
+
     const std::string reference = account->id + "-api-key";
     credentials_.put(reference, apiKey);
     account->credentialRef = reference;
@@ -137,12 +189,13 @@ AccountAuthOutcome AccountManager::configureAntigravityApiKey(
     account->cooldownUntilUnix.reset();
     database_.updateAccount(*account);
 
+    const auto models = parseOpenAiModelIds(validation.body);
     return AccountAuthOutcome{
         *account,
         AuthStatus{
             true,
-            "Gemini API credential stored locally for the Antigravity managed-agent API"}}
-    ;
+            "Gemini API credential validated; " +
+                std::to_string(models.size()) + " models visible"}};
 }
 
 AccountAuthOutcome AccountManager::configureZaiApiKey(
@@ -160,6 +213,18 @@ AccountAuthOutcome AccountManager::configureZaiApiKey(
         throw std::runtime_error("Unsupported Z.ai account mode: " + mode);
     }
 
+    if (mode == "general-api") {
+        const HttpResponse validation = ZaiClient::validateGeneralApiKey(apiKey);
+        if (!validation.succeeded()) {
+            markCredentialFailure(*account, validation);
+            account->lastError = httpFailureDetail("Z.ai", validation);
+            database_.updateAccount(*account);
+            return AccountAuthOutcome{
+                *account,
+                AuthStatus{false, account->lastError}};
+        }
+    }
+
     const std::string reference = account->id + "-api-key";
     credentials_.put(reference, apiKey);
     account->credentialRef = reference;
@@ -168,15 +233,17 @@ AccountAuthOutcome AccountManager::configureZaiApiKey(
     account->displayName = mode == "coding-plan"
         ? "Z.ai Coding Plan"
         : "Z.ai General API";
-    account->status = AccountStatus::Ready;
+    account->status = mode == "coding-plan"
+        ? AccountStatus::Warning
+        : AccountStatus::Ready;
     account->lastError.clear();
     account->consecutiveFailures = 0;
     account->cooldownUntilUnix.reset();
     database_.updateAccount(*account);
 
     const std::string detail = mode == "general-api"
-        ? "Z.ai General API credential stored locally"
-        : "Z.ai Coding Plan credential stored locally; unified routing is disabled for this mode";
+        ? "Z.ai General API credential validated and stored locally"
+        : "Z.ai Coding Plan credential stored locally; public machine-readable validation is not integrated for this mode";
     return AccountAuthOutcome{*account, AuthStatus{true, detail}};
 }
 
@@ -201,7 +268,8 @@ AccountLoginOutcome AccountManager::loginAccount(
                     "profile sync warning: " + std::string(exception.what()));
             }
         }
-    } else if (account->provider == "antigravity") {
+    } else if (account->provider == "antigravity" &&
+               account->providerMode == "consumer-cli") {
         AntigravityProvider provider;
         result = provider.login(*account, LoginOptions{});
         if (result.success) {
@@ -209,7 +277,8 @@ AccountLoginOutcome AccountManager::loginAccount(
         }
     } else {
         throw std::runtime_error(
-            "Interactive login is not implemented for provider: " + account->provider);
+            "Interactive login is not implemented for provider/mode: " +
+            account->provider + "/" + account->providerMode);
     }
 
     database_.updateAccount(*account);
@@ -223,29 +292,82 @@ AccountAuthOutcome AccountManager::refreshAccountStatus(const std::string& accou
     }
 
     if (account->provider == "zai") {
-        const bool configured =
-            !account->credentialRef.empty() && credentials_.exists(account->credentialRef);
-        account->status = configured ? AccountStatus::Ready : AccountStatus::AuthExpired;
+        if (account->credentialRef.empty()) {
+            account->status = AccountStatus::AuthExpired;
+            database_.updateAccount(*account);
+            return AccountAuthOutcome{
+                *account,
+                AuthStatus{false, "Z.ai API key is not configured"}};
+        }
+        const auto secret = credentials_.get(account->credentialRef);
+        if (!secret || secret->empty()) {
+            account->status = AccountStatus::AuthExpired;
+            database_.updateAccount(*account);
+            return AccountAuthOutcome{
+                *account,
+                AuthStatus{false, "Z.ai credential is unavailable"}};
+        }
+
+        if (account->providerMode == "general-api") {
+            const HttpResponse validation = ZaiClient::validateGeneralApiKey(*secret);
+            if (!validation.succeeded()) {
+                markCredentialFailure(*account, validation);
+                account->lastError = httpFailureDetail("Z.ai", validation);
+                database_.updateAccount(*account);
+                return AccountAuthOutcome{
+                    *account,
+                    AuthStatus{false, account->lastError}};
+            }
+            account->status = AccountStatus::Ready;
+            account->lastError.clear();
+            database_.updateAccount(*account);
+            return AccountAuthOutcome{
+                *account,
+                AuthStatus{true, "Z.ai General API credential validated"}};
+        }
+
+        account->status = AccountStatus::Warning;
         database_.updateAccount(*account);
         return AccountAuthOutcome{
             *account,
             AuthStatus{
-                configured,
-                configured ? "Z.ai credential is available" : "Z.ai API key is not configured"}};
+                true,
+                "Z.ai Coding Plan credential exists; validation endpoint is not integrated"}};
     }
 
     if (account->provider == "antigravity" && account->providerMode == "api-project") {
-        const bool configured =
-            !account->credentialRef.empty() && credentials_.exists(account->credentialRef);
-        account->status = configured ? AccountStatus::Ready : AccountStatus::AuthExpired;
+        if (account->credentialRef.empty()) {
+            account->status = AccountStatus::AuthExpired;
+            database_.updateAccount(*account);
+            return AccountAuthOutcome{
+                *account,
+                AuthStatus{false, "Antigravity Gemini API key is not configured"}};
+        }
+        const auto secret = credentials_.get(account->credentialRef);
+        if (!secret || secret->empty()) {
+            account->status = AccountStatus::AuthExpired;
+            database_.updateAccount(*account);
+            return AccountAuthOutcome{
+                *account,
+                AuthStatus{false, "Antigravity Gemini API credential is unavailable"}};
+        }
+
+        const HttpResponse validation = AntigravityApiClient::listModels(*secret);
+        if (!validation.succeeded()) {
+            markCredentialFailure(*account, validation);
+            account->lastError = httpFailureDetail("Gemini API", validation);
+            database_.updateAccount(*account);
+            return AccountAuthOutcome{
+                *account,
+                AuthStatus{false, account->lastError}};
+        }
+
+        account->status = AccountStatus::Ready;
+        account->lastError.clear();
         database_.updateAccount(*account);
         return AccountAuthOutcome{
             *account,
-            AuthStatus{
-                configured,
-                configured
-                    ? "Antigravity Gemini API credential is available"
-                    : "Antigravity Gemini API key is not configured"}};
+            AuthStatus{true, "Antigravity Gemini API credential validated"}};
     }
 
     AuthStatus auth;
@@ -265,7 +387,8 @@ AccountAuthOutcome AccountManager::refreshAccountStatus(const std::string& accou
                     "profile sync warning: " + std::string(exception.what()));
             }
         }
-    } else if (account->provider == "antigravity") {
+    } else if (account->provider == "antigravity" &&
+               account->providerMode == "consumer-cli") {
         AntigravityProvider provider;
         auth = provider.authStatus(*account);
         if (auth.authenticated) {
@@ -277,7 +400,8 @@ AccountAuthOutcome AccountManager::refreshAccountStatus(const std::string& accou
         }
     } else {
         throw std::runtime_error(
-            "Status refresh is not implemented for provider: " + account->provider);
+            "Status refresh is not implemented for provider/mode: " +
+            account->provider + "/" + account->providerMode);
     }
 
     if (!auth.authenticated) {
@@ -303,6 +427,66 @@ void AccountManager::refreshAllAccountStatuses() {
     }
 }
 
+ProviderModelsOutcome AccountManager::discoverModels(
+    const std::string& accountId) const {
+    const auto account = database_.findAccount(accountId);
+    if (!account) {
+        throw std::runtime_error("Account not found: " + accountId);
+    }
+
+    if (account->provider == "antigravity" &&
+        account->providerMode == "api-project") {
+        if (account->credentialRef.empty()) {
+            return {false, {}, "Gemini API key is not configured"};
+        }
+        const auto secret = credentials_.get(account->credentialRef);
+        if (!secret || secret->empty()) {
+            return {false, {}, "Gemini API credential is unavailable"};
+        }
+
+        const HttpResponse response = AntigravityApiClient::listModels(*secret);
+        if (!response.succeeded()) {
+            return {false, {}, httpFailureDetail("Gemini API", response)};
+        }
+
+        const auto visibleModels = parseOpenAiModelIds(response.body);
+        const auto supported = AntigravityApiClient::supportedAgentModels();
+        std::vector<std::string> compatible;
+        for (const auto& model : supported) {
+            if (std::find(visibleModels.begin(), visibleModels.end(), model) !=
+                visibleModels.end()) {
+                compatible.push_back(model);
+            }
+        }
+
+        if (compatible.empty()) {
+            return {
+                true,
+                supported,
+                "Gemini model listing succeeded; using documented Antigravity agent model set because no direct overlap was reported"};
+        }
+        return {
+            true,
+            compatible,
+            "Models visible to this Gemini API credential and supported by Antigravity agent_config"};
+    }
+
+    if (account->provider == "zai") {
+        return {
+            true,
+            ZaiClient::documentedChatModels(),
+            account->providerMode == "coding-plan"
+                ? "Z.ai Coding Plan documented model list"
+                : "Z.ai public API does not expose a model-list endpoint; showing documented chat models"};
+    }
+
+    return {
+        false,
+        {},
+        "Model discovery is not implemented for " + account->provider +
+            "/" + account->providerMode};
+}
+
 QuotaSnapshot AccountManager::readQuota(const std::string& accountId) {
     const auto account = database_.findAccount(accountId);
     if (!account) {
@@ -313,7 +497,8 @@ QuotaSnapshot AccountManager::readQuota(const std::string& accountId) {
     if (account->provider == "codex") {
         CodexProvider provider;
         snapshot = provider.readQuota(*account);
-    } else if (account->provider == "antigravity") {
+    } else if (account->provider == "antigravity" &&
+               account->providerMode == "consumer-cli") {
         AntigravityProvider provider;
         snapshot = provider.readQuota(*account);
     } else if (account->provider == "zai") {
@@ -321,7 +506,8 @@ QuotaSnapshot AccountManager::readQuota(const std::string& accountId) {
         snapshot = provider.readQuota(*account);
     } else {
         throw std::runtime_error(
-            "Quota reads are not implemented for provider: " + account->provider);
+            "Quota reads are not implemented for provider/mode: " +
+            account->provider + "/" + account->providerMode);
     }
 
     database_.recordQuotaSnapshot(accountId, snapshot);
