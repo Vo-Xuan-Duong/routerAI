@@ -89,6 +89,28 @@ int main() {
         require(hasModel(modelJson, "router/mixed-default"), "mixed executable group missing from model list");
         require(!hasModel(modelJson, "router/antigravity-default"), "consumer-only group must not be advertised");
 
+        const nlohmann::json streamingRequest = {
+            {"model", "router/zai-default"},
+            {"stream", true},
+            {"router", {{"models", {{"zai", "glm-5.1"}}}}},
+            {"messages", nlohmann::json::array({{{"role", "user"}, {"content", "hello"}}})},
+        };
+        const auto streaming = client.Post(
+            "/v1/chat/completions",
+            headers,
+            streamingRequest.dump(),
+            "application/json");
+        require(streaming && streaming->status == 200, "stream request must establish an SSE response");
+        require(
+            streaming->get_header_value("Content-Type").find("text/event-stream") != std::string::npos,
+            "stream response must use text/event-stream");
+        require(
+            streaming->body.find("event: error") != std::string::npos,
+            "missing credential must be represented as an SSE error event");
+        require(
+            streaming->body.ends_with("data: [DONE]\n\n"),
+            "SSE error stream must terminate with [DONE]");
+
         const std::string oldKey = server.apiKey();
         const std::string newKey = server.rotateApiKey();
         require(oldKey != newKey, "rotating local API key must generate a new key");
