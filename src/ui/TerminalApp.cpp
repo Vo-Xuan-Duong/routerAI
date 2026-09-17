@@ -158,6 +158,7 @@ int TerminalApp::run() {
                 case MainAction::LocalApi: showLocalApi(); break;
                 case MainAction::BestAccount: showBestAccount(); break;
                 case MainAction::Doctor: showDoctor(); break;
+                case MainAction::DesktopProfiles: showDesktopProfiles(); break;
                 case MainAction::Exit: return 0;
             }
         } catch (const std::exception& exception) {
@@ -169,7 +170,7 @@ int TerminalApp::run() {
 TerminalApp::MainAction TerminalApp::chooseMainAction() {
     std::vector<std::string> entries = {
         "Dashboard", "Accounts", "Add Provider", "Routing Groups",
-        "Local API", "Best account", "Doctor", "Exit",
+        "Local API", "Best account", "Doctor", "Desktop Applications", "Exit",
     };
     int selected = 0;
     MainAction action = MainAction::Exit;
@@ -202,6 +203,7 @@ TerminalApp::MainAction TerminalApp::chooseMainAction() {
             case 4: preview = vbox({text("Local API") | bold, separator(), text(api_.baseUrl()), text(api_.running() ? "RUNNING" : "STOPPED") | color(api_.running() ? Color::Green : Color::Red)}); break;
             case 5: preview = vbox({text("Best account") | bold, separator(), text("Preview the selector result for a routing group.")}); break;
             case 6: preview = vbox({text("Doctor") | bold, separator(), text("Check database, runtimes and localhost API.")}); break;
+            case 7: preview = vbox({text("Desktop Applications") | bold, separator(), text("Detect and launch supported Codex/Antigravity desktop applications."), text("Account switching remains user-controlled unless a stable external profile API exists.") | dim}); break;
             default: preview = vbox({text("Exit routerAI") | bold}); break;
         }
 
