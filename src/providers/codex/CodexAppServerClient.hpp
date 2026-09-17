@@ -6,8 +6,10 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <string>
+#include <string_view>
 
 #include <nlohmann/json.hpp>
 
@@ -20,6 +22,8 @@ struct CodexCompletionResult {
     std::string turnId;
 };
 
+using CodexDeltaCallback = std::function<bool(std::string_view)>;
+
 class CodexAppServerClient {
 public:
     explicit CodexAppServerClient(const std::filesystem::path& codexHome);
@@ -28,6 +32,12 @@ public:
     QuotaSnapshot readRateLimits();
     CodexCompletionResult runPrompt(
         const std::string& prompt,
+        const std::string& model = {},
+        const std::string& baseInstructions = {},
+        const std::string& developerInstructions = {});
+    CodexCompletionResult runPromptStreaming(
+        const std::string& prompt,
+        const CodexDeltaCallback& onDelta,
         const std::string& model = {},
         const std::string& baseInstructions = {},
         const std::string& developerInstructions = {});
@@ -45,6 +55,12 @@ private:
         const std::optional<nlohmann::json>& params = std::nullopt);
     nlohmann::json readResponse(std::int64_t requestId);
     nlohmann::json readMessage();
+    CodexCompletionResult runPromptImpl(
+        const std::string& prompt,
+        const CodexDeltaCallback* onDelta,
+        const std::string& model,
+        const std::string& baseInstructions,
+        const std::string& developerInstructions);
 
     static AccountProfile parseAccountProfile(const nlohmann::json& result);
     static QuotaSnapshot parseQuotaSnapshot(const nlohmann::json& result);
