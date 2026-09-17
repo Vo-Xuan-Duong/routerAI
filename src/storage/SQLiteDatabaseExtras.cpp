@@ -53,9 +53,9 @@ void exec(sqlite3* db, const char* sql) {
     }
 }
 
-void execWithId(sqlite3* db, const char* sql, const std::string& id) {
+void executeWithId(sqlite3* db, const char* sql, const std::string& id) {
     sqlite3_stmt* stmt = nullptr;
-    check(sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr), db, "prepare statement");
+    check(sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr), db, "prepare account cleanup");
     sqlite3_bind_text(stmt, 1, id.c_str(), -1, SQLITE_TRANSIENT);
     const int rc = sqlite3_step(stmt);
     if (rc != SQLITE_DONE) {
@@ -71,14 +71,17 @@ void execWithId(sqlite3* db, const char* sql, const std::string& id) {
 void SQLiteDatabase::deleteAccount(const std::string& accountId) {
     exec(db_, "BEGIN IMMEDIATE;");
     try {
-        execWithId(db_, "DELETE FROM routing_group_members WHERE account_id = ?;", accountId);
-        execWithId(db_, "UPDATE routing_groups SET manual_account_id = '' WHERE manual_account_id = ?;", accountId);
-        execWithId(
+        executeWithId(db_, "DELETE FROM routing_group_members WHERE account_id = ?;", accountId);
+        executeWithId(
+            db_,
+            "UPDATE routing_groups SET manual_account_id = '', last_index = -1 WHERE manual_account_id = ?;",
+            accountId);
+        executeWithId(
             db_,
             "DELETE FROM quota_windows WHERE snapshot_id IN (SELECT id FROM quota_snapshots WHERE account_id = ?);",
             accountId);
-        execWithId(db_, "DELETE FROM quota_snapshots WHERE account_id = ?;", accountId);
-        execWithId(db_, "DELETE FROM accounts WHERE id = ?;", accountId);
+        executeWithId(db_, "DELETE FROM quota_snapshots WHERE account_id = ?;", accountId);
+        executeWithId(db_, "DELETE FROM accounts WHERE id = ?;", accountId);
         exec(db_, "COMMIT;");
     } catch (...) {
         try { exec(db_, "ROLLBACK;"); } catch (...) {}
