@@ -100,6 +100,18 @@ if(BUILD_TESTING)
         nlohmann_json::nlohmann_json
     )
 
+    add_executable(router_provider_metadata_tests
+        tests/ProviderMetadataTests.cpp
+        src/net/HttpClient.cpp
+        src/providers/antigravity/AntigravityApiClient.cpp
+        src/providers/zai/ZaiClient.cpp
+        src/providers/zai/ZaiProvider.cpp
+    )
+    target_include_directories(router_provider_metadata_tests PRIVATE src)
+    target_link_libraries(router_provider_metadata_tests PRIVATE
+        CURL::libcurl
+    )
+
     add_executable(router_local_api_tests
         tests/LocalApiServerTests.cpp
         src/api/LocalApiServer.cpp
@@ -135,12 +147,14 @@ if(BUILD_TESTING)
         target_compile_options(router_selector_tests PRIVATE /W4 /permissive-)
         target_compile_options(router_routing_tests PRIVATE /W4 /permissive-)
         target_compile_options(router_openai_compat_tests PRIVATE /W4 /permissive-)
+        target_compile_options(router_provider_metadata_tests PRIVATE /W4 /permissive-)
         target_compile_options(router_local_api_tests PRIVATE /W4 /permissive-)
     else()
         target_compile_options(router_storage_tests PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(router_selector_tests PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(router_routing_tests PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(router_openai_compat_tests PRIVATE -Wall -Wextra -Wpedantic)
+        target_compile_options(router_provider_metadata_tests PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(router_local_api_tests PRIVATE -Wall -Wextra -Wpedantic)
     endif()
 
@@ -148,5 +162,6 @@ if(BUILD_TESTING)
     add_test(NAME account_selector COMMAND router_selector_tests)
     add_test(NAME routing_manager COMMAND router_routing_tests)
     add_test(NAME openai_compat COMMAND router_openai_compat_tests)
+    add_test(NAME provider_metadata COMMAND router_provider_metadata_tests)
     add_test(NAME local_api COMMAND router_local_api_tests)
 endif()
