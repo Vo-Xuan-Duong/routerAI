@@ -14,44 +14,6 @@ env:
   VCPKG_REVISION: 386d7c478221b7ee0c97bfe6ea61dcf65121d564
 
 jobs:
-  windows-portable:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Bootstrap vcpkg
-        shell: pwsh
-        run: |
-          git clone --filter=blob:none https://github.com/microsoft/vcpkg.git "$env:GITHUB_WORKSPACE\vcpkg"
-          git -C "$env:GITHUB_WORKSPACE\vcpkg" checkout "$env:VCPKG_REVISION"
-          & "$env:GITHUB_WORKSPACE\vcpkg\bootstrap-vcpkg.bat" -disableMetrics
-
-      - name: Configure
-        shell: pwsh
-        run: |
-          cmake -S . -B build `
-            -DCMAKE_BUILD_TYPE=Release `
-            "-DCMAKE_TOOLCHAIN_FILE=$env:GITHUB_WORKSPACE\vcpkg\scripts\buildsystems\vcpkg.cmake" `
-            -DVCPKG_TARGET_TRIPLET=x64-windows-static
-
-      - name: Build and test
-        shell: pwsh
-        run: |
-          cmake --build build --config Release --parallel 2
-          ctest --test-dir build -C Release --output-on-failure
-
-      - name: Assemble portable directory
-        shell: pwsh
-        run: |
-          cmake --install build --config Release --prefix dist/routerAI
-          Copy-Item README.md,CHANGELOG.md -Destination dist/routerAI
-          Compress-Archive -Path dist/routerAI/* -DestinationPath "routerAI-$env:PACKAGE_VERSION-windows-x64.zip" -Force
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: routerAI-${{ env.PACKAGE_VERSION }}-windows-x64
-          path: routerAI-${{ env.PACKAGE_VERSION }}-windows-x64.zip
-
   linux-portable:
     runs-on: ubuntu-latest
     steps:
@@ -87,7 +49,7 @@ jobs:
 
   publish-release:
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [windows-portable, linux-portable]
+    needs: [linux-portable]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
