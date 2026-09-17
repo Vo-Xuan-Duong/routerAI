@@ -1,0 +1,82 @@
+#include "core/ConfigManager.hpp"
+#include "core/RequestLog.hpp"
+#include "core/RoutingManager.hpp"
+#include "storage/SQLiteDatabase.hpp"
+
+#include <filesystem>
+#include <iostream>
+#include <stdexcept>
+#include <string>
+
+namespace {
+void require(bool condition, const std::string& message) {
+    if (!condition) throw std::runtime_error(message);
+}
+}
+
+int main() {
+    const std::filesystem::path root = "management-features-test-runtime";
+    std::error_code ignored;
+    std::filesystem::remove_all(root, ignored);
+    std::filesystem::create_directories(root);
+
+    try {
+        routerai::SQLiteDatabase db((root / "source.db").string());
+        db.initialize();
+
+        routerai::Account account;
+        account.id = "zai-export";
+        account.provider = "zai";
+        account.providerMode = "general-api";
+        account.displayName = "Z.ai export";
+        account.credentialRef = "must-not-export";
+        account.status = routerai::AccountStatus::Ready;
+        account.priority = 42;
+        db.insertAccount(account);
+
+        routerai::RoutingManager routing(db);
+        routing.syncDefaultGroups();
+        routerai::ConfigManager configs(db, routing);
+        const std::string exported = configs.exportJson();
+        require(exported.find("must-not-export") == std::string::npos, "credential reference leaked into config export");
+        require(exported.find("credential_ref") == std::string::npos, "credential_ref field must not be exported");
+
+        routerai::RequestLogEntry log;
+        log.groupId = "zai-default";
+        log.accountId = account.id;
+        log.provider = "zai";
+        log.model = "glm-5.2";
+        log.statusCode = 200;
+        log.durationMs = 123;
+        log.success = true;
+        db.recordRequestLog(log);
+        const auto logs = db.listRequestLogs();
+        require(logs.size() == 1, "request history must persist");
+        require(logs.front().durationMs == 123, "request duration mismatch");
+        db.clearRequestLogs();
+        require(db.listRequestLogs().empty(), "request history clear failed");
+
+        routerai::SQLiteDatabase importedDb((root / "imported.db").string());
+        importedDb.initialize();
+        routerai::RoutingManager importedRouting(importedDb);
+        routerai::ConfigManager importedConfigs(importedDb, importedRouting);
+        const auto result = importedConfigs.importJson(exported);
+        require(result.accounts == 1, "one account should import");
+        const auto imported = importedDb.findAccount(account.id);
+        require(imported.has_value(), "imported account missing");
+        require(imported->credentialRef.empty(), "import must never restore credential reference");
+        require(imported->status == routerai::AccountStatus::AuthExpired, "new imported credential account must require auth");
+        require(imported->priority == 42, "account priority was not restored");
+
+        importedDb.deleteAccount(account.id);
+        require(!importedDb.findAccount(account.id).has_value(), "account delete failed");
+
+        std::filesystem::remove_all(root, ignored);
+        std::cout << "ManagementFeaturesTests: OK\n";
+    } catch (const std::exception& exception) {
+        std::filesystem::remove_all(root, ignored);
+        std::cerr << "ManagementFeaturesTests: FAILED: " << exception.what() << '\n';
+        return 1;
+    }
+    return 0;
+}
