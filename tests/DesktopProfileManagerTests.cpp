@@ -1,3 +1,4 @@
+#include "desktop/DesktopAccountSwitcher.hpp"
 #include "desktop/DesktopProfileManager.hpp"
 
 #include <iostream>
@@ -40,9 +41,17 @@ int main() {
         invalid.displayName = "Invalid";
         invalid.installed = false;
         require(!desktop.launch(invalid), "non-installed desktop application must not launch");
-
         invalid.installed = true;
         require(!desktop.launch(invalid), "desktop application without executable must not launch");
+
+        routerai::DesktopAccountSwitcher switcher;
+        const auto codexSwitch = switcher.capability("codex-desktop");
+        const auto antigravitySwitch = switcher.capability("antigravity-desktop");
+        require(!codexSwitch.supported, "Codex Desktop switching must stay disabled without a supported adapter");
+        require(!antigravitySwitch.supported, "Antigravity Desktop switching must stay disabled without a supported adapter");
+        std::string detail;
+        require(!switcher.switchAccount("codex-desktop", "codex-01", &detail), "unsupported desktop switch must fail closed");
+        require(!detail.empty(), "unsupported desktop switch must explain why it is unavailable");
 
         std::cout << "DesktopProfileManagerTests: OK\n";
     } catch (const std::exception& exception) {
