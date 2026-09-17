@@ -8,6 +8,9 @@ concurrency:
   group: routerai-build-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  VCPKG_REVISION: 386d7c478221b7ee0c97bfe6ea61dcf65121d564
+
 jobs:
   linux:
     runs-on: ubuntu-latest
@@ -17,7 +20,8 @@ jobs:
       - name: Bootstrap vcpkg
         shell: bash
         run: |
-          git clone --depth 1 https://github.com/microsoft/vcpkg.git "$GITHUB_WORKSPACE/vcpkg"
+          git clone --filter=blob:none https://github.com/microsoft/vcpkg.git "$GITHUB_WORKSPACE/vcpkg"
+          git -C "$GITHUB_WORKSPACE/vcpkg" checkout "$VCPKG_REVISION"
           "$GITHUB_WORKSPACE/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
 
       - name: Configure
@@ -41,7 +45,8 @@ jobs:
       - name: Bootstrap vcpkg
         shell: pwsh
         run: |
-          git clone --depth 1 https://github.com/microsoft/vcpkg.git "$env:GITHUB_WORKSPACE\vcpkg"
+          git clone --filter=blob:none https://github.com/microsoft/vcpkg.git "$env:GITHUB_WORKSPACE\vcpkg"
+          git -C "$env:GITHUB_WORKSPACE\vcpkg" checkout "$env:VCPKG_REVISION"
           & "$env:GITHUB_WORKSPACE\vcpkg\bootstrap-vcpkg.bat" -disableMetrics
 
       - name: Configure
