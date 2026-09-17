@@ -68,6 +68,7 @@ int main() {
             accounts,
             "127.0.0.1",
             port);
+        server.configureProviderAdminRoutes();
         require(server.start(), "local API server failed to bind test port");
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
@@ -89,6 +90,13 @@ int main() {
         require(unauthorized && unauthorized->status == 401, "GET /v1/models must require auth");
         const auto adminUnauthorized = client.Get("/admin/api/overview");
         require(adminUnauthorized && adminUnauthorized->status == 401, "Admin API must require auth");
+        const nlohmann::json providerCreate = {{"provider", "zai"}, {"mode", "general-api"}};
+        const auto providerUnauthorized = client.Post(
+            "/admin/api/providers",
+            httplib::Headers{},
+            providerCreate.dump(),
+            "application/json");
+        require(providerUnauthorized && providerUnauthorized->status == 401, "provider setup API must require auth");
 
         httplib::Headers headers = {{"Authorization", "Bearer " + server.apiKey()}};
         const auto models = client.Get("/v1/models", headers);
@@ -100,6 +108,16 @@ int main() {
 
         const auto overview = client.Get("/admin/api/overview", headers);
         require(overview && overview->status == 200, "authenticated admin overview must succeed");
+
+        const auto createdProvider = client.Post(
+            "/admin/api/providers",
+            headers,
+            providerCreate.dump(),
+            "application/json");
+        require(createdProvider && createdProvider->status == 201, "Web Admin must add an API provider without requiring a terminal");
+        const auto createdProviderJson = nlohmann::json::parse(createdProvider->body);
+        require(createdProviderJson.at("account").value("provider", std::string{}) == "zai", "created provider mismatch");
+        require(createdProviderJson.at("account").value("mode", std::string{}) == "general-api", "created provider mode mismatch");
 
         const nlohmann::json streamingRequest = {
             {"model", "router/zai-default"},
