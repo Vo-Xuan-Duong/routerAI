@@ -41,6 +41,28 @@ int main() {
         require(exported.find("must-not-export") == std::string::npos, "credential reference leaked into config export");
         require(exported.find("credential_ref") == std::string::npos, "credential_ref field must not be exported");
 
+        const std::string rebindConfig = R"JSON({
+          "schema_version": 1,
+          "accounts": [
+            {
+              "id": "zai-export",
+              "provider": "antigravity",
+              "provider_mode": "api-project",
+              "display_name": "Rebound",
+              "priority": 999
+            }
+          ],
+          "routing_groups": []
+        })JSON";
+        const auto rebindResult = configs.importJson(rebindConfig);
+        require(rebindResult.accounts == 0, "existing account provider identity must be immutable during import");
+        const auto afterRebind = db.findAccount("zai-export");
+        require(afterRebind.has_value(), "source account disappeared after rebind attempt");
+        require(afterRebind->provider == "zai", "config import changed existing account provider");
+        require(afterRebind->providerMode == "general-api", "config import changed existing account provider mode");
+        require(afterRebind->credentialRef == "must-not-export", "existing credential reference changed during import");
+        require(afterRebind->priority == 42, "rejected rebind must not partially update metadata");
+
         routerai::RequestLogEntry log;
         log.groupId = "zai-default";
         log.accountId = account.id;
@@ -82,6 +104,12 @@ int main() {
               "id": "../../escape",
               "provider": "codex",
               "display_name": "Unsafe"
+            },
+            {
+              "id": "unknown-provider",
+              "provider": "evil-provider",
+              "provider_mode": "api-project",
+              "display_name": "Unsafe provider"
             }
           ],
           "routing_groups": [
@@ -94,11 +122,12 @@ int main() {
           ]
         })JSON";
         const auto maliciousResult = importedConfigs.importJson(maliciousConfig);
-        require(maliciousResult.accounts == 1, "unsafe account identifiers must be skipped");
+        require(maliciousResult.accounts == 1, "unsafe account/provider identifiers must be skipped");
         const auto safeImported = importedDb.findAccount("safe-import");
         require(safeImported.has_value(), "safe account should import");
         require(safeImported->credentialRef.empty(), "imported credential_ref injection must be ignored");
         require(!importedDb.findAccount("../../escape").has_value(), "path-like account id must be rejected");
+        require(!importedDb.findAccount("unknown-provider").has_value(), "unsupported provider must be rejected");
         require(!importedRouting.findGroup("../../unsafe-group").has_value(), "unsafe routing group id must be rejected");
 
         routerai::RoutingGroup manualGroup;
