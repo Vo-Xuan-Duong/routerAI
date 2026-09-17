@@ -1,4 +1,5 @@
 #include "net/HttpClient.hpp"
+#include "Version.hpp"
 
 #include <curl/curl.h>
 
@@ -68,11 +69,12 @@ void applyCommonOptions(
     const std::string& url,
     long timeoutSeconds,
     std::array<char, CURL_ERROR_SIZE>& errorBuffer) {
+    const std::string userAgent = std::string("routerAI/") + kVersion;
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeoutSeconds);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 15L);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "routerAI/0.6.0");
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, userAgent.c_str());
     curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, errorBuffer.data());
 }
 
