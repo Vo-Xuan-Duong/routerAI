@@ -20,6 +20,7 @@ add_executable(router
     src/core/AccountManager.cpp
     src/core/AccountSelector.cpp
     src/core/CompletionRouter.cpp
+    src/core/CompletionStream.cpp
     src/core/FailurePolicy.cpp
     src/core/RoutingManager.cpp
     src/desktop/DesktopProfileManager.cpp
@@ -120,6 +121,7 @@ if(BUILD_TESTING)
         src/api/OpenAICompat.cpp
         src/core/AccountSelector.cpp
         src/core/CompletionRouter.cpp
+        src/core/CompletionStream.cpp
         src/core/FailurePolicy.cpp
         src/core/RoutingManager.cpp
         src/net/HttpClient.cpp
