@@ -2,6 +2,15 @@ name: package
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+env:
+  PACKAGE_VERSION: 0.7.0
 
 jobs:
   windows-portable:
@@ -15,13 +24,13 @@ jobs:
           git clone --depth 1 https://github.com/microsoft/vcpkg.git "$env:GITHUB_WORKSPACE\vcpkg"
           & "$env:GITHUB_WORKSPACE\vcpkg\bootstrap-vcpkg.bat" -disableMetrics
 
-      - name: Configure static portable build
+      - name: Configure
         shell: pwsh
         run: |
           cmake -S . -B build `
             -DCMAKE_BUILD_TYPE=Release `
-            -DVCPKG_TARGET_TRIPLET=x64-windows-static `
-            "-DCMAKE_TOOLCHAIN_FILE=$env:GITHUB_WORKSPACE\vcpkg\scripts\buildsystems\vcpkg.cmake"
+            "-DCMAKE_TOOLCHAIN_FILE=$env:GITHUB_WORKSPACE\vcpkg\scripts\buildsystems\vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows-static
 
       - name: Build and test
         shell: pwsh
@@ -34,12 +43,12 @@ jobs:
         run: |
           cmake --install build --config Release --prefix dist/routerAI
           Copy-Item README.md,CHANGELOG.md -Destination dist/routerAI
-          Compress-Archive -Path dist/routerAI/* -DestinationPath routerAI-0.7.0-windows-x64.zip -Force
+          Compress-Archive -Path dist/routerAI/* -DestinationPath "routerAI-$env:PACKAGE_VERSION-windows-x64.zip" -Force
 
       - uses: actions/upload-artifact@v4
         with:
-          name: routerAI-0.7.0-windows-x64
-          path: routerAI-0.7.0-windows-x64.zip
+          name: routerAI-${{ env.PACKAGE_VERSION }}-windows-x64
+          path: routerAI-${{ env.PACKAGE_VERSION }}-windows-x64.zip
 
   linux-portable:
     runs-on: ubuntu-latest
@@ -66,9 +75,31 @@ jobs:
         run: |
           cmake --install build --prefix dist/routerAI
           cp README.md CHANGELOG.md dist/routerAI/
-          tar -C dist -czf routerAI-0.7.0-linux-x64.tar.gz routerAI
+          tar -C dist -czf "routerAI-${PACKAGE_VERSION}-linux-x64.tar.gz" routerAI
 
       - uses: actions/upload-artifact@v4
         with:
-          name: routerAI-0.7.0-linux-x64
-          path: routerAI-0.7.0-linux-x64.tar.gz
+          name: routerAI-${{ env.PACKAGE_VERSION }}-linux-x64
+          path: routerAI-${{ env.PACKAGE_VERSION }}-linux-x64.tar.gz
+
+  publish-release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [windows-portable, linux-portable]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: routerAI-${{ env.PACKAGE_VERSION }}-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            release-assets/* \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "routerAI ${GITHUB_REF_NAME}" \
+            --generate-notes
