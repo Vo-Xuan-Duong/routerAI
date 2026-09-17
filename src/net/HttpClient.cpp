@@ -37,11 +37,11 @@ struct StreamState {
 std::size_t streamHeader(char* data, std::size_t size, std::size_t count, void* userData) {
     const std::size_t bytes = size * count;
     auto* state = static_cast<StreamState*>(userData);
-    std::string_view line(data, bytes);
+    const std::string line(data, bytes);
 
     if (line.starts_with("HTTP/")) {
         long status = 0;
-        if (std::sscanf(data, "HTTP/%*s %ld", &status) == 1) {
+        if (std::sscanf(line.c_str(), "HTTP/%*s %ld", &status) == 1) {
             state->statusCode = status;
         }
     }
