@@ -211,7 +211,7 @@ SQLite account row
     -> CredentialStore
 ```
 
-Local layout:
+Local fallback layout:
 
 ```text
 .routerai/
@@ -220,7 +220,23 @@ Local layout:
 +-- accounts/
 ```
 
-Windows uses DPAPI for credential files. POSIX currently uses user-only file permissions (`0600`); a native POSIX keyring backend remains future work.
+Credential backends:
+
+```text
+Windows
+    -> DPAPI-protected credential files
+
+Linux desktop with DBus + secret-tool
+    -> Secret Service / OS keyring
+
+Linux without a usable Secret Service
+    -> user-only fallback file (0600)
+
+macOS
+    -> user-only fallback file (0600) for now
+```
+
+Linux keyring use is optional and detected at runtime, so headless environments do not gain a hard dependency on `secret-tool` or a DBus session.
 
 The localhost API key uses the same credential store and can be rotated from the TUI. Rotation invalidates the previous key immediately.
 
@@ -388,7 +404,7 @@ otherwise                    -> READY
 
 ## Desktop Applications
 
-routerAI now has a Desktop Applications screen and a small `DesktopProfileManager` abstraction.
+routerAI has a Desktop Applications screen and a `DesktopProfileManager` abstraction.
 
 Implemented today:
 
@@ -420,7 +436,10 @@ CTest covers:
 - OpenAI pseudo-model/group resolution
 - provider model metadata
 - local HTTP API auth/model listing/key rotation
+- native HTTP streaming transport with local mock endpoints
+- non-2xx streaming error buffering
 - chunked SSE error framing and `[DONE]`
+- CredentialStore put/get/overwrite/erase contract
 - Desktop application manager metadata/detection behavior
 
 ## Build
@@ -481,6 +500,9 @@ Use one manual workflow run when a development batch is ready for Windows/Linux 
 [done] FTXUI control plane
 [done] Provider-first Add Provider flow
 [done] Windows DPAPI credential protection
+[done] Optional Linux Secret Service credential backend
+[done] POSIX 0600 fallback credential storage
+[done] CredentialStore contract tests
 [done] Antigravity consumer CLI + quota adapter
 [done] Antigravity Gemini API project adapter
 [done] Antigravity native Interactions SSE translation
@@ -491,13 +513,14 @@ Use one manual workflow run when a development batch is ready for Windows/Linux 
 [done] Local OpenAI-compatible API
 [done] Local API key rotation
 [done] HTTP integration tests
+[done] Streaming HTTP transport tests
 [done] Desktop application detection/launch
 [done] Manual/PR-only GitHub Actions workflow
 
 [next] One manual Windows/Linux CI verification for this batch
-[next] Native POSIX keyring backend
+[next] Native macOS Keychain backend
 [next] Z.ai no-cost credential validation if a documented endpoint becomes available
-[next] Cross-provider streaming failover design before first emitted byte
+[next] Cross-provider native streaming failover before first emitted byte
 [next] Stable desktop account/profile switching if providers expose supported interfaces
 [next] Optional web/desktop management UI
 ```
