@@ -3,6 +3,7 @@
 #include "net/HttpClient.hpp"
 
 #include <string>
+#include <vector>
 
 namespace routerai {
 
@@ -13,7 +14,14 @@ public:
         const std::string& jsonBody,
         long timeoutSeconds = 300);
 
+    static HttpResponse listModels(
+        const std::string& apiKey,
+        long timeoutSeconds = 30);
+
+    static std::vector<std::string> supportedAgentModels();
+
     static std::string endpoint();
+    static std::string modelsEndpoint();
     static std::string agentName();
 };
 
