@@ -115,6 +115,16 @@ if(BUILD_TESTING)
         CURL::libcurl
     )
 
+    add_executable(router_http_stream_tests
+        tests/HttpClientStreamTests.cpp
+        src/net/HttpClient.cpp
+    )
+    target_include_directories(router_http_stream_tests PRIVATE src)
+    target_link_libraries(router_http_stream_tests PRIVATE
+        CURL::libcurl
+        httplib::httplib
+    )
+
     add_executable(router_local_api_tests
         tests/LocalApiServerTests.cpp
         src/api/LocalApiServer.cpp
@@ -159,6 +169,7 @@ if(BUILD_TESTING)
         target_compile_options(router_routing_tests PRIVATE /W4 /permissive-)
         target_compile_options(router_openai_compat_tests PRIVATE /W4 /permissive-)
         target_compile_options(router_provider_metadata_tests PRIVATE /W4 /permissive-)
+        target_compile_options(router_http_stream_tests PRIVATE /W4 /permissive-)
         target_compile_options(router_local_api_tests PRIVATE /W4 /permissive-)
         target_compile_options(router_desktop_tests PRIVATE /W4 /permissive-)
     else()
@@ -167,6 +178,7 @@ if(BUILD_TESTING)
         target_compile_options(router_routing_tests PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(router_openai_compat_tests PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(router_provider_metadata_tests PRIVATE -Wall -Wextra -Wpedantic)
+        target_compile_options(router_http_stream_tests PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(router_local_api_tests PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(router_desktop_tests PRIVATE -Wall -Wextra -Wpedantic)
     endif()
@@ -176,6 +188,7 @@ if(BUILD_TESTING)
     add_test(NAME routing_manager COMMAND router_routing_tests)
     add_test(NAME openai_compat COMMAND router_openai_compat_tests)
     add_test(NAME provider_metadata COMMAND router_provider_metadata_tests)
+    add_test(NAME http_stream COMMAND router_http_stream_tests)
     add_test(NAME local_api COMMAND router_local_api_tests)
     add_test(NAME desktop_manager COMMAND router_desktop_tests)
 endif()
