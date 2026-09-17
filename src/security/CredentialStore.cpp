@@ -1,6 +1,8 @@
 #include "security/CredentialStore.hpp"
 
+#include <array>
 #include <cctype>
+#include <cstdio>
 #include <fstream>
 #include <stdexcept>
 #include <utility>
@@ -59,6 +61,79 @@ void writeBytes(const std::filesystem::path& path, const std::vector<unsigned ch
 #endif
 }
 
+#ifdef __linux__
+
+bool secretToolAvailable() {
+    const int rc = std::system("command -v secret-tool >/dev/null 2>&1");
+    return rc == 0;
+}
+
+std::string secretToolCommand(const char* action, const std::string& reference) {
+    return std::string("secret-tool ") + action +
+        " application routerAI reference " + safeReference(reference) +
+        " 2>/dev/null";
+}
+
+bool storeInSecretService(const std::string& reference, const std::string& secret) {
+    if (!secretToolAvailable()) {
+        return false;
+    }
+
+    const std::string command =
+        "secret-tool store --label='routerAI' application routerAI reference " +
+        safeReference(reference) + " 2>/dev/null";
+    FILE* pipe = popen(command.c_str(), "w");
+    if (!pipe) {
+        return false;
+    }
+
+    const std::string payload = secret + '\n';
+    const bool wrote =
+        std::fwrite(payload.data(), 1, payload.size(), pipe) == payload.size();
+    const int rc = pclose(pipe);
+    return wrote && rc == 0;
+}
+
+std::optional<std::string> readFromSecretService(const std::string& reference) {
+    if (!secretToolAvailable()) {
+        return std::nullopt;
+    }
+
+    const std::string command = secretToolCommand("lookup", reference);
+    FILE* pipe = popen(command.c_str(), "r");
+    if (!pipe) {
+        return std::nullopt;
+    }
+
+    std::array<char, 512> buffer{};
+    std::string output;
+    while (std::fgets(buffer.data(), static_cast<int>(buffer.size()), pipe)) {
+        output += buffer.data();
+    }
+    const int rc = pclose(pipe);
+    if (rc != 0) {
+        return std::nullopt;
+    }
+
+    while (!output.empty() && (output.back() == '\n' || output.back() == '\r')) {
+        output.pop_back();
+    }
+    if (output.empty()) {
+        return std::nullopt;
+    }
+    return output;
+}
+
+void eraseFromSecretService(const std::string& reference) {
+    if (!secretToolAvailable()) {
+        return;
+    }
+    const std::string command = secretToolCommand("clear", reference);
+    (void)std::system(command.c_str());
+}
+
+#endif
+
 }  // namespace
 
 CredentialStore::CredentialStore(std::filesystem::path root) : root_(std::move(root)) {
@@ -76,6 +151,14 @@ void CredentialStore::put(const std::string& reference, const std::string& secre
     if (secret.empty()) {
         throw std::runtime_error("Credential secret cannot be empty");
     }
+
+#ifdef __linux__
+    if (storeInSecretService(reference, secret)) {
+        std::error_code ignored;
+        std::filesystem::remove(pathFor(reference), ignored);
+        return;
+    }
+#endif
 
     std::vector<unsigned char> stored;
 #ifdef _WIN32
@@ -102,6 +185,12 @@ void CredentialStore::put(const std::string& reference, const std::string& secre
 }
 
 std::optional<std::string> CredentialStore::get(const std::string& reference) const {
+#ifdef __linux__
+    if (const auto secret = readFromSecretService(reference)) {
+        return secret;
+    }
+#endif
+
     const auto path = pathFor(reference);
     if (!std::filesystem::exists(path)) {
         return std::nullopt;
@@ -137,10 +226,18 @@ std::optional<std::string> CredentialStore::get(const std::string& reference) co
 }
 
 bool CredentialStore::exists(const std::string& reference) const {
+#ifdef __linux__
+    if (readFromSecretService(reference).has_value()) {
+        return true;
+    }
+#endif
     return std::filesystem::exists(pathFor(reference));
 }
 
 void CredentialStore::erase(const std::string& reference) const {
+#ifdef __linux__
+    eraseFromSecretService(reference);
+#endif
     std::error_code error;
     std::filesystem::remove(pathFor(reference), error);
     if (error) {
