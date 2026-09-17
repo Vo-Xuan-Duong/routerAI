@@ -22,6 +22,7 @@ find_package(nlohmann_json CONFIG REQUIRED)
 add_executable(router
     src/main.cpp
     src/api/LocalApiServer.cpp
+    src/api/LocalApiProviderAdmin.cpp
     src/api/OpenAICompat.cpp
     src/core/AccountManager.cpp
     src/core/AccountManagerLifecycle.cpp
@@ -148,6 +149,7 @@ if(BUILD_TESTING)
     add_executable(router_local_api_tests
         tests/LocalApiServerTests.cpp
         src/api/LocalApiServer.cpp
+        src/api/LocalApiProviderAdmin.cpp
         src/api/OpenAICompat.cpp
         src/core/AccountManager.cpp
         src/core/AccountManagerLifecycle.cpp
