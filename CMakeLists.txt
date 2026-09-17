@@ -22,6 +22,7 @@ add_executable(router
     src/core/CompletionRouter.cpp
     src/core/FailurePolicy.cpp
     src/core/RoutingManager.cpp
+    src/desktop/DesktopProfileManager.cpp
     src/net/HttpClient.cpp
     src/providers/antigravity/AntigravityApiClient.cpp
     src/providers/antigravity/AntigravityCli.cpp
@@ -36,6 +37,7 @@ add_executable(router
     src/system/DuplexProcess.cpp
     src/system/ProcessRunner.cpp
     src/ui/TerminalApp.cpp
+    src/ui/TerminalAppDesktop.cpp
 )
 
 target_include_directories(router PRIVATE src)
@@ -142,6 +144,13 @@ if(BUILD_TESTING)
         target_link_libraries(router_local_api_tests PRIVATE crypt32)
     endif()
 
+    add_executable(router_desktop_tests
+        tests/DesktopProfileManagerTests.cpp
+        src/desktop/DesktopProfileManager.cpp
+        src/system/ProcessRunner.cpp
+    )
+    target_include_directories(router_desktop_tests PRIVATE src)
+
     if(MSVC)
         target_compile_options(router_storage_tests PRIVATE /W4 /permissive-)
         target_compile_options(router_selector_tests PRIVATE /W4 /permissive-)
@@ -149,6 +158,7 @@ if(BUILD_TESTING)
         target_compile_options(router_openai_compat_tests PRIVATE /W4 /permissive-)
         target_compile_options(router_provider_metadata_tests PRIVATE /W4 /permissive-)
         target_compile_options(router_local_api_tests PRIVATE /W4 /permissive-)
+        target_compile_options(router_desktop_tests PRIVATE /W4 /permissive-)
     else()
         target_compile_options(router_storage_tests PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(router_selector_tests PRIVATE -Wall -Wextra -Wpedantic)
@@ -156,6 +166,7 @@ if(BUILD_TESTING)
         target_compile_options(router_openai_compat_tests PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(router_provider_metadata_tests PRIVATE -Wall -Wextra -Wpedantic)
         target_compile_options(router_local_api_tests PRIVATE -Wall -Wextra -Wpedantic)
+        target_compile_options(router_desktop_tests PRIVATE -Wall -Wextra -Wpedantic)
     endif()
 
     add_test(NAME sqlite_storage COMMAND router_storage_tests)
@@ -164,4 +175,5 @@ if(BUILD_TESTING)
     add_test(NAME openai_compat COMMAND router_openai_compat_tests)
     add_test(NAME provider_metadata COMMAND router_provider_metadata_tests)
     add_test(NAME local_api COMMAND router_local_api_tests)
+    add_test(NAME desktop_manager COMMAND router_desktop_tests)
 endif()
