@@ -2,7 +2,7 @@
 
 Multi-provider AI account/runtime manager, localhost OpenAI-compatible router, terminal control plane, and embedded Web Admin written in C++20.
 
-Current development release: **0.7.0**.
+Current release: **0.7.0**.
 
 routerAI separates four concerns:
 
@@ -88,7 +88,7 @@ routerAI
 └─ Exit
 ```
 
-`Provider Console` retains the detailed provider-first TUI from 0.6 for login, quota, routing groups, model discovery, Doctor, Local API controls and Desktop Applications.
+`Provider Console` retains the detailed provider-first TUI for login, quota, routing groups, model discovery, Doctor, Local API controls and Desktop Applications.
 
 ### Usage Dashboard
 
@@ -165,7 +165,9 @@ local API key
 runtime session databases
 ```
 
-Imported new credential-backed accounts return as `AUTH_EXPIRED` until the credential/login is configured locally. Imported identifiers are restricted to safe account/group/provider identifiers.
+Imported new credential-backed accounts return as `AUTH_EXPIRED` until the credential/login is configured locally. Imported identifiers are restricted to supported provider names and safe account/group identifiers.
+
+For an account that already exists locally, config import cannot change its `provider` or `provider_mode`. This prevents a metadata backup from rebinding an existing local `credential_ref` to a different provider adapter.
 
 ## Request history
 
@@ -183,7 +185,7 @@ success/failure
 bounded error text
 ```
 
-Prompt bodies and provider response bodies are not stored in request history.
+Prompt bodies and successful provider response bodies are not stored in request history.
 
 ## Routing groups
 
@@ -363,7 +365,7 @@ Local runtime/secret state is ignored by Git:
 
 routerAI detects and explicitly launches supported ChatGPT/Codex and Antigravity desktop installations where discoverable.
 
-A `DesktopAccountSwitcher` capability boundary now exists so a future supported provider API can be plugged in without redesigning the UI. Current builds fail closed: if no official stable switching interface is available, `switchAccount()` returns unsupported.
+A `DesktopAccountSwitcher` capability boundary exists so a future supported provider API can be plugged in without redesigning the UI. Current builds fail closed: if no official stable switching interface is available, `switchAccount()` returns unsupported.
 
 routerAI does not copy desktop cookies, OAuth tokens, profile databases, or OS keyring entries to simulate unsupported switching.
 
@@ -400,22 +402,32 @@ Do not mix MinGW/GCC with the MSVC `x64-windows` triplet.
 
 ### Local Windows package
 
+Windows validation and packaging are intentionally local:
+
 ```cmd
+test
 package
 ```
 
-This assembles a portable directory/ZIP from the local build.
-
-### GitHub packaging workflow
-
-The manual `package` workflow builds and tests before producing artifacts:
+`package.cmd` assembles a portable directory and:
 
 ```text
 routerAI-0.7.0-windows-x64.zip
+```
+
+It copies vcpkg dynamic libraries and discoverable MinGW runtime DLLs into the portable package.
+
+### GitHub Linux packaging workflow
+
+GitHub Actions is Linux-only. The `package` workflow can be launched manually and also runs for version tags. It builds, tests and produces:
+
+```text
 routerAI-0.7.0-linux-x64.tar.gz
 ```
 
-The Windows packaging job uses the `x64-windows-static` vcpkg triplet to reduce external runtime dependency requirements.
+For a `v*` tag, the workflow creates a GitHub Release and attaches the Linux archive. A Windows ZIP can be produced locally with `package.cmd` and attached separately when desired.
+
+The vcpkg revision used by CI/packaging is pinned for reproducible builds instead of following vcpkg `main` on every run.
 
 ## Tests
 
@@ -430,13 +442,13 @@ CTest includes:
 - provider metadata
 - HTTP/SSE transport
 - credential-store contract
-- config export/import secrecy
+- config export/import secrecy and credential-rebinding rejection
 - request-history persistence/clear
-- account deletion cleanup
+- account deletion and manual-routing cleanup
 - Local API/Web Admin auth and management endpoints
 - Desktop detection and switch-capability fail-closed behavior
 
-Run locally:
+Run Windows tests locally:
 
 ```cmd
 test
@@ -444,7 +456,7 @@ test
 
 ## CI policy
 
-Normal pushes do not run CI.
+Normal pushes do not run build CI.
 
 Build/test workflow triggers only on:
 
@@ -453,9 +465,11 @@ workflow_dispatch
 pull_request
 ```
 
-Packaging is also manual (`workflow_dispatch`). Development commits therefore do not repeatedly consume Actions minutes.
+GitHub build/test verification is **Linux-only**. Windows is validated locally with `test.cmd` as requested.
 
-`0.6.0` was verified on Windows and Linux. `0.7.0` is developed on `dev/0.7.0` and should be merged only after its single release PR passes the same Windows/Linux matrix.
+The package workflow is also Linux-only on GitHub Actions and runs manually or for `v*` tags. Development pushes therefore do not repeatedly consume Actions minutes.
+
+`0.7.0` passed its Linux Configure + Build + CTest verification on PR #3 before merge into `main`.
 
 ## Architecture
 
@@ -489,15 +503,16 @@ Packaging is also manual (`workflow_dispatch`). Development commits therefore do
 ```text
 [done] remove/enable/disable account controls
 [done] secret-free config export/import
+[done] config-import credential rebinding hardening
 [done] persistent request history / log viewer
 [done] improved usage dashboard
 [done] CPack + local Windows package helper
-[done] manual Windows/Linux binary packaging workflow
+[done] Linux-only GitHub build/test and binary packaging workflow
 [done] embedded localhost Web Admin
 [done] Web provider add/login/key/refresh/account controls
 [done] desktop switching capability abstraction (fails closed when unsupported)
+[verified] Linux Configure + Build + CTest on PR #3
 
-[pending verification] one Windows/Linux PR build + CTest for 0.7.0
 [provider-dependent] actual Codex Desktop external account switching
 [provider-dependent] actual Antigravity external profile switching
 [optional] native macOS Keychain backend
