@@ -29,10 +29,9 @@ int main() {
             routerai::AntigravityApiClient::modelsEndpoint() ==
                 "https://generativelanguage.googleapis.com/v1beta/openai/models",
             "Gemini OpenAI-compatible models endpoint mismatch");
-
-        const auto antigravityModels =
-            routerai::AntigravityApiClient::supportedAgentModels();
-        require(!antigravityModels.empty(), "Antigravity documented model set must not be empty");
+        require(
+            !routerai::AntigravityApiClient::supportedAgentModels().empty(),
+            "Antigravity documented model set must not be empty");
 
         require(
             routerai::ZaiProvider::generalBaseUrl() ==
@@ -43,10 +42,18 @@ int main() {
                 "https://api.z.ai/api/coding/paas/v4",
             "Z.ai Coding Plan base URL mismatch");
 
-        const auto zaiModels = routerai::ZaiClient::documentedChatModels();
-        require(contains(zaiModels, "glm-5.1"), "documented Z.ai model list must contain glm-5.1");
-        require(contains(zaiModels, "glm-4.7"), "documented Z.ai model list must contain glm-4.7");
-        require(!contains(zaiModels, "glm-5.2"), "undocumented model guesses must not enter the static model list");
+        const auto generalModels = routerai::ZaiClient::documentedChatModels();
+        require(contains(generalModels, "glm-5.1"), "General API model list must contain glm-5.1");
+        require(contains(generalModels, "glm-4.7"), "General API model list must contain glm-4.7");
+        require(!contains(generalModels, "glm-5.2"), "undocumented model guesses must not enter the static model list");
+
+        const auto codingModels = routerai::ZaiClient::documentedCodingPlanModels();
+        require(codingModels.size() == 4, "Coding Plan model list should match the documented four-model boundary");
+        require(contains(codingModels, "glm-5.1"), "Coding Plan must include glm-5.1");
+        require(contains(codingModels, "glm-5-turbo"), "Coding Plan must include glm-5-turbo");
+        require(contains(codingModels, "glm-4.7"), "Coding Plan must include glm-4.7");
+        require(contains(codingModels, "glm-4.5-air"), "Coding Plan must include glm-4.5-air");
+        require(!contains(codingModels, "glm-5"), "Coding Plan must not inherit unsupported General API models");
 
         std::cout << "ProviderMetadataTests: OK\n";
     } catch (const std::exception& exception) {
