@@ -28,6 +28,21 @@ HttpResponse ZaiClient::chatCompletions(
         timeoutSeconds);
 }
 
+HttpResponse ZaiClient::chatCompletionsStream(
+    const std::string& apiKey,
+    const std::string& jsonBody,
+    const HttpStreamCallback& onChunk,
+    long timeoutSeconds) {
+    auto headers = zaiHeaders(apiKey);
+    headers.emplace("Accept", "text/event-stream");
+    return HttpClient::postJsonStream(
+        ZaiProvider::generalBaseUrl() + "/chat/completions",
+        jsonBody,
+        headers,
+        onChunk,
+        timeoutSeconds);
+}
+
 std::vector<std::string> ZaiClient::documentedChatModels() {
     return {
         "glm-5.1",
