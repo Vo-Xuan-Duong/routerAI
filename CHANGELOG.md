@@ -11,12 +11,14 @@
 - Persistent request history containing routing metadata, HTTP/provider status, latency, stream flag and bounded errors; prompts and response bodies are not logged.
 - Embedded Web Admin at `http://127.0.0.1:9000/admin`.
 - Authenticated Web Admin APIs for overview, account controls, request history and config transfer.
+- Web Admin provider setup for Codex, Antigravity consumer/API-project modes and Z.ai General/Coding Plan modes.
+- Web Admin browser-login, account refresh and API-key configuration/reconfiguration actions.
 - Web Admin usage dashboard, account controls, request log viewer and JSON config editor/download.
 - Desktop account-switch capability abstraction that fails closed until a supported provider adapter exists.
 - CPack install/package metadata.
-- `package.cmd` for local Windows portable ZIP assembly.
+- `package.cmd` for local Windows portable ZIP assembly, including vcpkg and discovered MinGW runtime DLLs.
 - Manual `package` GitHub Actions workflow producing Windows and Linux binary artifacts.
-- Management feature tests for config secrecy, request history and account deletion.
+- Management feature tests for config secrecy, unsafe identifier rejection, request history and account deletion.
 
 ### Changed
 
@@ -29,8 +31,9 @@
 ### Security / privacy
 
 - Exported config never contains provider secrets or `credential_ref` values.
-- Imported config cannot set local credential references and uses restricted account/group identifiers.
-- Web Admin mutation endpoints require the same local Bearer key as the OpenAI-compatible API.
+- Imported config cannot set local credential references and uses restricted account/group/provider identifiers.
+- Web Admin mutation/provider-setup endpoints require the same local Bearer key as the OpenAI-compatible API.
+- Provider keys entered in Web Admin are sent only to the localhost router process and stored through `CredentialStore`.
 - Request history deliberately excludes prompt and completion bodies.
 - Desktop switching does not copy cookies, OAuth tokens, client profile databases, or OS keyring entries.
 
