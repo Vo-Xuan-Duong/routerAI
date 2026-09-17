@@ -23,6 +23,12 @@ struct AccountAuthOutcome {
     AuthStatus auth;
 };
 
+struct ProviderModelsOutcome {
+    bool success{false};
+    std::vector<std::string> models;
+    std::string detail;
+};
+
 class AccountManager {
 public:
     AccountManager(SQLiteDatabase& database, CredentialStore& credentials);
@@ -43,6 +49,9 @@ public:
     AccountLoginOutcome loginAccount(const std::string& accountId, bool useBrowser);
     AccountAuthOutcome refreshAccountStatus(const std::string& accountId);
     void refreshAllAccountStatuses();
+
+    ProviderModelsOutcome discoverModels(const std::string& accountId) const;
+
     QuotaSnapshot readQuota(const std::string& accountId);
     std::vector<QuotaHistoryEntry> listQuotaHistory(
         const std::string& accountId,
