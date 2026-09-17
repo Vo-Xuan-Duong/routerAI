@@ -43,12 +43,13 @@ int main() {
             "Z.ai Coding Plan base URL mismatch");
 
         const auto generalModels = routerai::ZaiClient::documentedChatModels();
+        require(contains(generalModels, "glm-5.2"), "General API model list must contain glm-5.2");
         require(contains(generalModels, "glm-5.1"), "General API model list must contain glm-5.1");
         require(contains(generalModels, "glm-4.7"), "General API model list must contain glm-4.7");
-        require(!contains(generalModels, "glm-5.2"), "undocumented model guesses must not enter the static model list");
 
         const auto codingModels = routerai::ZaiClient::documentedCodingPlanModels();
-        require(codingModels.size() == 4, "Coding Plan model list should match the documented four-model boundary");
+        require(codingModels.size() == 5, "Coding Plan model list should match the documented five-model boundary");
+        require(contains(codingModels, "glm-5.2"), "Coding Plan must include glm-5.2");
         require(contains(codingModels, "glm-5.1"), "Coding Plan must include glm-5.1");
         require(contains(codingModels, "glm-5-turbo"), "Coding Plan must include glm-5-turbo");
         require(contains(codingModels, "glm-4.7"), "Coding Plan must include glm-4.7");
