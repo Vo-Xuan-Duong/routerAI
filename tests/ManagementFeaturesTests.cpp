@@ -101,8 +101,20 @@ int main() {
         require(!importedDb.findAccount("../../escape").has_value(), "path-like account id must be rejected");
         require(!importedRouting.findGroup("../../unsafe-group").has_value(), "unsafe routing group id must be rejected");
 
+        routerai::RoutingGroup manualGroup;
+        manualGroup.id = "manual-cleanup";
+        manualGroup.displayName = "Manual cleanup";
+        manualGroup.strategy = routerai::RoutingStrategy::Manual;
+        manualGroup.accountIds = {account.id};
+        manualGroup.manualAccountId = account.id;
+        importedRouting.saveGroup(manualGroup);
+
         importedDb.deleteAccount(account.id);
         require(!importedDb.findAccount(account.id).has_value(), "account delete failed");
+        const auto cleanedGroup = importedRouting.findGroup(manualGroup.id);
+        require(cleanedGroup.has_value(), "manual group should remain after account removal");
+        require(cleanedGroup->accountIds.empty(), "removed account must leave routing membership");
+        require(cleanedGroup->manualAccountId.empty(), "removed account must clear manual account selection");
 
         std::filesystem::remove_all(root, ignored);
         std::cout << "ManagementFeaturesTests: OK\n";
