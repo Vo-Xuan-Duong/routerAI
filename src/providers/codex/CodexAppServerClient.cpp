@@ -186,6 +186,34 @@ CodexCompletionResult CodexAppServerClient::runPrompt(
     const std::string& model,
     const std::string& baseInstructions,
     const std::string& developerInstructions) {
+    return runPromptImpl(
+        prompt,
+        nullptr,
+        model,
+        baseInstructions,
+        developerInstructions);
+}
+
+CodexCompletionResult CodexAppServerClient::runPromptStreaming(
+    const std::string& prompt,
+    const CodexDeltaCallback& onDelta,
+    const std::string& model,
+    const std::string& baseInstructions,
+    const std::string& developerInstructions) {
+    return runPromptImpl(
+        prompt,
+        &onDelta,
+        model,
+        baseInstructions,
+        developerInstructions);
+}
+
+CodexCompletionResult CodexAppServerClient::runPromptImpl(
+    const std::string& prompt,
+    const CodexDeltaCallback* onDelta,
+    const std::string& model,
+    const std::string& baseInstructions,
+    const std::string& developerInstructions) {
     if (prompt.empty()) {
         throw std::runtime_error("Codex prompt cannot be empty");
     }
@@ -257,7 +285,11 @@ CodexCompletionResult CodexAppServerClient::runPrompt(
 
         if (method == "item/agentMessage/delta") {
             if (optionalString(params, "turnId") == result.turnId) {
-                result.text += optionalString(params, "delta");
+                const std::string delta = optionalString(params, "delta");
+                result.text += delta;
+                if (onDelta && !delta.empty() && !(*onDelta)(delta)) {
+                    throw std::runtime_error("Codex stream consumer cancelled");
+                }
             }
             continue;
         }
