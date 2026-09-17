@@ -184,9 +184,17 @@ std::vector<RoutingGroup> RoutingManager::listGroups() const {
 }
 
 bool RoutingManager::groupSupportsCompletions(const RoutingGroup& group) const {
+    if (group.strategy == RoutingStrategy::Manual) {
+        if (group.manualAccountId.empty()) {
+            return false;
+        }
+        const auto account = database_.findAccount(group.manualAccountId);
+        return account && completionRoutingCapable(*account);
+    }
+
     for (const auto& accountId : group.accountIds) {
         const auto account = database_.findAccount(accountId);
-        if (account && completionRoutingCapable(*account)) {
+        if (account && automaticRoutingCapable(*account)) {
             return true;
         }
     }
