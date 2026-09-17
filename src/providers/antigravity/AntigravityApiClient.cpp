@@ -20,6 +20,24 @@ HttpResponse AntigravityApiClient::createInteraction(
         timeoutSeconds);
 }
 
+HttpResponse AntigravityApiClient::createInteractionStream(
+    const std::string& apiKey,
+    const std::string& jsonBody,
+    const HttpStreamCallback& onChunk,
+    long timeoutSeconds) {
+    const std::map<std::string, std::string> headers = {
+        {"x-goog-api-key", apiKey},
+        {"Accept", "text/event-stream"},
+    };
+
+    return HttpClient::postJsonStream(
+        streamingEndpoint(),
+        jsonBody,
+        headers,
+        onChunk,
+        timeoutSeconds);
+}
+
 HttpResponse AntigravityApiClient::listModels(
     const std::string& apiKey,
     long timeoutSeconds) {
@@ -31,8 +49,6 @@ HttpResponse AntigravityApiClient::listModels(
 }
 
 std::vector<std::string> AntigravityApiClient::supportedAgentModels() {
-    // Models documented for agent_config.model on the current Antigravity
-    // managed-agent documentation.
     return {
         "gemini-3.8-flash",
         "gemini-3.7-flash",
@@ -44,6 +60,10 @@ std::vector<std::string> AntigravityApiClient::supportedAgentModels() {
 
 std::string AntigravityApiClient::endpoint() {
     return "https://generativelanguage.googleapis.com/v1beta/interactions";
+}
+
+std::string AntigravityApiClient::streamingEndpoint() {
+    return endpoint() + "?alt=sse";
 }
 
 std::string AntigravityApiClient::modelsEndpoint() {
