@@ -142,7 +142,9 @@ if(BUILD_TESTING)
         src/core/AccountSelector.cpp
         src/core/ConfigManager.cpp
         src/core/FailurePolicy.cpp
+        src/core/MaintenanceManager.cpp
         src/core/RoutingManager.cpp
+        src/security/CredentialStore.cpp
         src/storage/SQLiteDatabase.cpp
         src/storage/SQLiteDatabaseExtras.cpp
     )
