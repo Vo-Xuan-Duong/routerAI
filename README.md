@@ -2,7 +2,7 @@
 
 Multi-provider AI account/runtime manager, localhost OpenAI-compatible router, terminal control plane, and embedded Web Admin written in C++20.
 
-Current release: **0.7.1**.
+Current release: **0.8.0**.
 
 routerAI separates four concerns:
 
@@ -75,12 +75,12 @@ routerAI does not invent private Z.ai endpoints for credential/quota discovery.
 
 ## Management TUI
 
-`router.exe` opens the new 0.7 management control plane:
+`router.exe` opens the 0.8 management control plane:
 
 ```text
 routerAI
 ├─ Usage Dashboard
-├─ Account Controls
+├─ Account Overview
 ├─ Provider Console
 ├─ Request History
 ├─ Config Export / Import
@@ -101,7 +101,9 @@ The dashboard shows:
 - recent request success rate
 - per-account provider/status/identity
 
-### Account lifecycle
+### Account overview and lifecycle
+
+The main Account Overview is operational rather than read-only. From the same selectable terminal screen you can refresh one account's provider status, refresh supported live quota, enable/disable routing, inspect details, or remove the local account. It also provides best-effort bulk status and quota refresh so one failing account does not stop the remaining refreshes.
 
 Accounts can be enabled/disabled without destroying provider auth/quota health.
 
@@ -510,9 +512,11 @@ The package workflow is also Linux-only on GitHub Actions and runs manually or f
                  -> detect/launch + supported future switch adapters
 ```
 
-## 0.7.1 status
+## 0.8.0 status
 
 ```text
+[done] interactive Account Overview with per-account status/quota refresh
+[done] best-effort bulk status/quota refresh with per-account failures isolated
 [done] remove/enable/disable account controls
 [done] secret-free config export/import + credential-rebinding hardening
 [done] persistent request history / log viewer
