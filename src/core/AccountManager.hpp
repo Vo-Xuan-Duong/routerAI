@@ -51,6 +51,7 @@ public:
     void refreshAllAccountStatuses();
 
     Account setAccountEnabled(const std::string& accountId, bool enabled);
+    Account setAccountPriority(const std::string& accountId, int priority);
     void removeAccount(const std::string& accountId);
 
     ProviderModelsOutcome discoverModels(const std::string& accountId) const;
