@@ -773,7 +773,8 @@ void ManagementApp::showRoutingHealth() {
             "Strategy   : " + toString(group.strategy),
             std::string("Enabled    : ") + (group.enabled ? "yes" : "no"),
             "Members    : " + std::to_string(group.accountIds.size()),
-            std::string("Executable : ") + (routing_.groupSupportsCompletions(group) ? "yes" : "no"),
+            std::string("Completion capable: ") + (routing_.groupSupportsCompletions(group) ? "yes" : "no"),
+            std::string("Routable now      : ") + (primary ? "yes" : "no"),
             "Primary    : " + decisionLabel(primary),
         };
 
