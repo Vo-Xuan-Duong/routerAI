@@ -38,6 +38,18 @@ public:
         const std::vector<std::string>& excludedAccountIds);
     std::optional<RoutingDecision> select(const std::string& groupId);
 
+    std::optional<RoutingDecision> preview(
+        const std::string& groupId,
+        std::int64_t nowUnix,
+        const std::vector<std::string>& excludedAccountIds);
+    std::optional<RoutingDecision> preview(
+        const std::string& groupId,
+        std::int64_t nowUnix);
+    std::optional<RoutingDecision> preview(
+        const std::string& groupId,
+        const std::vector<std::string>& excludedAccountIds);
+    std::optional<RoutingDecision> preview(const std::string& groupId);
+
     void recordFailure(
         const std::string& accountId,
         const std::string& error,
@@ -47,6 +59,11 @@ public:
 private:
     SQLiteDatabase& database_;
 
+    std::optional<RoutingDecision> selectInternal(
+        const std::string& groupId,
+        std::int64_t nowUnix,
+        const std::vector<std::string>& excludedAccountIds,
+        bool advanceRoundRobin);
     std::vector<RoutingCandidate> candidatesFor(const RoutingGroup& group) const;
 };
 
