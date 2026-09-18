@@ -2,6 +2,8 @@
 
 #include "Version.hpp"
 #include "core/ConfigManager.hpp"
+#include "core/MaintenanceManager.hpp"
+#include "security/CredentialStore.hpp"
 #include "system/ProcessRunner.hpp"
 
 #include <ftxui/component/component.hpp>
@@ -54,6 +56,23 @@ std::string percent(double value) {
     return out.str();
 }
 
+std::string formatBytes(std::uintmax_t bytes) {
+    constexpr double kKiB = 1024.0;
+    constexpr double kMiB = kKiB * 1024.0;
+    constexpr double kGiB = kMiB * 1024.0;
+    std::ostringstream out;
+    if (bytes < 1024) {
+        out << bytes << " B";
+    } else if (static_cast<double>(bytes) < kMiB) {
+        out << std::fixed << std::setprecision(1) << static_cast<double>(bytes) / kKiB << " KiB";
+    } else if (static_cast<double>(bytes) < kGiB) {
+        out << std::fixed << std::setprecision(1) << static_cast<double>(bytes) / kMiB << " MiB";
+    } else {
+        out << std::fixed << std::setprecision(2) << static_cast<double>(bytes) / kGiB << " GiB";
+    }
+    return out.str();
+}
+
 bool openUrl(const std::string& url) {
 #ifdef _WIN32
     return ProcessRunner::runInteractive("start \"\" \"" + url + "\"") == 0;
@@ -87,6 +106,7 @@ int ManagementApp::run() {
                 "Provider Console",
                 "Request History",
                 "Config Export / Import",
+                "Maintenance / Doctor",
                 "Web Admin",
                 "Exit",
             },
@@ -98,7 +118,8 @@ int ManagementApp::run() {
             else if (action == 2) providerConsole_.run();
             else if (action == 3) showRequestHistory();
             else if (action == 4) showConfigTransfer();
-            else if (action == 5) showWebAdmin();
+            else if (action == 5) showMaintenance();
+            else if (action == 6) showWebAdmin();
             else return 0;
         } catch (const std::exception& exception) {
             showMessage("Operation failed", {exception.what()}, true);
@@ -300,6 +321,94 @@ void ManagementApp::showConfigTransfer() {
                 std::to_string(result.routingGroups) + " routing groups",
                 result.detail,
             });
+        } else {
+            return;
+        }
+    }
+}
+
+
+void ManagementApp::showMaintenance() {
+    CredentialStore credentials;
+    MaintenanceManager maintenance(database_, routing_, credentials);
+
+    while (true) {
+        const auto report = maintenance.inspect();
+        const std::string subtitle =
+            "DB " + formatBytes(report.databaseBytes) +
+            " | request logs " + std::to_string(report.requestLogRows) +
+            " | missing secrets " + std::to_string(report.missingCredentialRefs) +
+            " | invalid routing " + std::to_string(report.invalidRoutingMembers) +
+            " | orphan runtime " + std::to_string(report.orphanRuntimeDirectories);
+
+        const int action = chooseOption(
+            "Maintenance / Doctor",
+            {
+                "Run request-log retention (30 days / 10,000 rows)",
+                "Repair invalid routing members (" + std::to_string(report.invalidRoutingMembers) + ")",
+                "Remove orphan runtime folders (" + std::to_string(report.orphanRuntimeDirectories) + ")",
+                "Diagnostics details",
+                "Back",
+            },
+            subtitle);
+
+        if (action == 0) {
+            const auto result = maintenance.pruneRequestLogs();
+            showMessage("Request-log retention", {
+                "Before  : " + std::to_string(result.beforeRows),
+                "Removed : " + std::to_string(result.removedRows),
+                "After   : " + std::to_string(result.afterRows),
+                "Policy  : newest 10,000 rows, maximum age 30 days",
+            });
+        } else if (action == 1) {
+            if (report.invalidRoutingMembers == 0) {
+                showMessage("Routing maintenance", {"No invalid routing members found."});
+                continue;
+            }
+            const auto fixes = maintenance.repairRoutingGroups();
+            showMessage("Routing maintenance", {
+                "Removed/cleared invalid references: " + std::to_string(fixes),
+                "Default routing groups were synchronized after repair.",
+            });
+        } else if (action == 2) {
+            if (report.orphanRuntimeDirectories == 0) {
+                showMessage("Runtime maintenance", {"No orphan runtime folders found."});
+                continue;
+            }
+            const int confirm = chooseOption(
+                "Remove orphan runtime folders?",
+                {"Cancel", "Remove"},
+                "Only direct children under .routerai/accounts that no longer match an account ID are removed.");
+            if (confirm == 1) {
+                const auto removed = maintenance.removeOrphanRuntimeDirectories();
+                showMessage("Runtime maintenance", {
+                    "Removed orphan runtime folders: " + std::to_string(removed),
+                });
+            }
+        } else if (action == 3) {
+            std::vector<std::string> lines = {
+                "Database footprint      : " + formatBytes(report.databaseBytes),
+                "Request log rows        : " + std::to_string(report.requestLogRows),
+                "Missing credential refs : " + std::to_string(report.missingCredentialRefs),
+                "Invalid routing refs    : " + std::to_string(report.invalidRoutingMembers),
+                "Orphan runtime folders  : " + std::to_string(report.orphanRuntimeDirectories),
+                "Missing Codex runtimes  : " + std::to_string(report.missingRuntimeDirectories),
+                std::string("Local API               : ") + (api_.running() ? "OK " : "FAILED ") + api_.baseUrl(),
+            };
+
+            for (const auto& id : report.missingCredentialAccounts) {
+                lines.push_back("Missing credential: " + id);
+            }
+            for (const auto& entry : report.invalidRoutingEntries) {
+                lines.push_back("Invalid routing  : " + entry);
+            }
+            for (const auto& path : report.orphanRuntimePaths) {
+                lines.push_back("Orphan runtime   : " + path.string());
+            }
+            for (const auto& id : report.missingRuntimeAccounts) {
+                lines.push_back("Missing runtime  : " + id);
+            }
+            showMessage("Doctor details", lines, !api_.running());
         } else {
             return;
         }
