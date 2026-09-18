@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.8.5 - Windows MSVC build
+
+### Fixed
+
+- Windows source builds no longer force the unsupported `x64-mingw-dynamic` cpp-httplib path.
+- `configure.cmd` now locates Visual Studio 2022 / Build Tools through `vswhere`, activates the x64 MSVC environment, and configures Ninja with the `x64-windows` vcpkg triplet.
+- Stale MinGW CMake caches are removed automatically when migrating an existing checkout.
+- Windows builds explicitly target Windows 10 APIs required by the current cpp-httplib dependency.
+- `run.cmd` and `package.cmd` now use the `x64-windows` runtime directory and no longer depend on MinGW runtime DLLs.
+
+### CI
+
+- Pull-request build verification now runs on both Linux and Windows.
+- The Windows CI path exercises the same `configure.cmd`, `build.cmd`, and `test.cmd` helpers used by local development.
+
 ## 0.8.4 - Routing health
 
 ### Added
