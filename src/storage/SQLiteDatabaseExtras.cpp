@@ -35,7 +35,8 @@ void ensureRequestLogTable(sqlite3* db) {
         "success INTEGER NOT NULL DEFAULT 0,"
         "error TEXT NOT NULL DEFAULT ''"
         ");"
-        "CREATE INDEX IF NOT EXISTS idx_request_logs_created_at ON request_logs(id DESC);";
+        "CREATE INDEX IF NOT EXISTS idx_request_logs_created_at ON request_logs(id DESC);"
+        "CREATE INDEX IF NOT EXISTS idx_request_logs_created_at_value ON request_logs(created_at);";
     char* error = nullptr;
     if (sqlite3_exec(db, sql, nullptr, nullptr, &error) != SQLITE_OK) {
         const std::string message = error ? error : sqlite3_errmsg(db);
