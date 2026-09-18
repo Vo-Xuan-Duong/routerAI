@@ -2,7 +2,7 @@
 
 Multi-provider AI account/runtime manager, localhost OpenAI-compatible router, terminal control plane, and embedded Web Admin written in C++20.
 
-Current release: **0.8.1**.
+Current release: **0.8.2**.
 
 routerAI separates four concerns:
 
@@ -80,6 +80,7 @@ routerAI does not invent private Z.ai endpoints for credential/quota discovery.
 ```text
 routerAI
 ├─ Usage Dashboard
+├─ Quota Advisor
 ├─ Account Overview
 ├─ Provider Console
 ├─ Request History
@@ -116,6 +117,20 @@ Up/Down   scroll account rows
 0         reset filters/sort
 Esc/q     back
 ```
+
+### Quota Advisor
+
+Quota Advisor is the operator-facing bridge between consumer quota monitoring and manual account selection.
+
+It supports:
+
+- Codex `subscription-runtime` accounts
+- Antigravity `consumer-cli` accounts
+- explicit status + quota refresh using the existing supported provider integrations
+- recommendation by health, known/lower quota usage, priority, then account ID
+- writing the recommended account into the provider's manual default routing group
+
+The recommendation is advisory until the operator selects it. Applying it updates routerAI's manual routing selection only; it does not copy credentials, browser cookies, OAuth state, or switch an external desktop application session.
 
 ### Account overview and lifecycle
 
@@ -528,9 +543,10 @@ The package workflow is also Linux-only on GitHub Actions and runs manually or f
                  -> detect/launch + supported future switch adapters
 ```
 
-## 0.8.1 status
+## 0.8.2 status
 
 ```text
+[done] Quota Advisor for mode-aware consumer recommendations + manual selection
 [done] interactive Usage Dashboard with refresh/filter/sort/scroll controls
 [done] interactive Account Overview with per-account status/quota refresh
 [done] best-effort bulk status/quota refresh with per-account failures isolated
