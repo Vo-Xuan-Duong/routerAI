@@ -1,9 +1,12 @@
 #include "core/ConfigManager.hpp"
+#include "core/MaintenanceManager.hpp"
 #include "core/RequestLog.hpp"
 #include "core/RoutingManager.hpp"
 #include "storage/SQLiteDatabase.hpp"
+#include "security/CredentialStore.hpp"
 
 #include <filesystem>
+#include <sqlite3.h>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -144,6 +147,97 @@ int main() {
         require(cleanedGroup.has_value(), "manual group should remain after account removal");
         require(cleanedGroup->accountIds.empty(), "removed account must leave routing membership");
         require(cleanedGroup->manualAccountId.empty(), "removed account must clear manual account selection");
+
+        routerai::SQLiteDatabase maintenanceDb((root / "maintenance.db").string());
+        maintenanceDb.initialize();
+
+        routerai::Account maintenanceAccount;
+        maintenanceAccount.id = "maint-zai";
+        maintenanceAccount.provider = "zai";
+        maintenanceAccount.providerMode = "general-api";
+        maintenanceAccount.displayName = "Maintenance Z.ai";
+        maintenanceAccount.credentialRef = "routerai-maintenance-test-missing-credential-91f5";
+        maintenanceAccount.status = routerai::AccountStatus::Ready;
+        maintenanceDb.insertAccount(maintenanceAccount);
+
+        routerai::RoutingGroup brokenGroup;
+        brokenGroup.id = "broken-manual";
+        brokenGroup.displayName = "Broken manual";
+        brokenGroup.strategy = routerai::RoutingStrategy::Manual;
+        brokenGroup.accountIds = {maintenanceAccount.id, "ghost-account"};
+        brokenGroup.manualAccountId = "ghost-account";
+        maintenanceDb.saveRoutingGroup(brokenGroup);
+
+        const auto runtimeRoot = root / "accounts";
+        std::filesystem::create_directories(runtimeRoot / "orphan-account");
+        routerai::CredentialStore maintenanceCredentials(root / "secrets");
+        routerai::RoutingManager maintenanceRouting(maintenanceDb);
+        routerai::MaintenanceManager maintenance(
+            maintenanceDb,
+            maintenanceRouting,
+            maintenanceCredentials,
+            runtimeRoot);
+
+        const auto reportBefore = maintenance.inspect();
+        require(reportBefore.missingCredentialRefs == 1, "missing credential reference should be reported");
+        require(reportBefore.invalidRoutingMembers == 2, "invalid routing member/manual selection should be reported");
+        require(reportBefore.orphanRuntimeDirectories == 1, "orphan runtime directory should be reported");
+
+        const auto routingFixes = maintenance.repairRoutingGroups();
+        require(routingFixes == 2, "maintenance should repair both invalid routing references");
+        require(maintenance.inspect().invalidRoutingMembers == 0, "routing repair left invalid references");
+
+        const auto removedRuntime = maintenance.removeOrphanRuntimeDirectories();
+        require(removedRuntime == 1, "orphan runtime directory was not removed");
+        require(!std::filesystem::exists(runtimeRoot / "orphan-account"), "orphan runtime directory still exists");
+
+        for (int index = 0; index < 5; ++index) {
+            routerai::RequestLogEntry retainedLog;
+            retainedLog.groupId = "zai-default";
+            retainedLog.accountId = maintenanceAccount.id;
+            retainedLog.provider = "zai";
+            retainedLog.model = "glm-5.2";
+            retainedLog.statusCode = 200;
+            retainedLog.durationMs = index;
+            retainedLog.success = true;
+            maintenanceDb.recordRequestLog(retainedLog);
+        }
+        require(maintenanceDb.countRequestLogs() == 5, "request log count mismatch before retention");
+        routerai::RequestLogRetentionPolicy retention;
+        retention.maxRows = 3;
+        retention.maxAgeDays = 0;
+        const auto retentionResult = maintenance.pruneRequestLogs(retention);
+        require(retentionResult.beforeRows == 5, "retention before-row count mismatch");
+        require(retentionResult.afterRows == 3, "retention row cap was not enforced");
+        require(retentionResult.removedRows == 2, "retention removed-row count mismatch");
+        require(maintenanceDb.listRequestLogs(10).size() == 3, "retention did not keep exactly three newest rows");
+
+        sqlite3* rawDb = nullptr;
+        require(sqlite3_open((root / "maintenance.db").string().c_str(), &rawDb) == SQLITE_OK,
+            "failed to open maintenance database for age-retention setup");
+        char* sqliteError = nullptr;
+        const int ageSetup = sqlite3_exec(
+            rawDb,
+            "UPDATE request_logs SET created_at = datetime('now', '-45 days') "
+            "WHERE id = (SELECT MIN(id) FROM request_logs);",
+            nullptr,
+            nullptr,
+            &sqliteError);
+        if (ageSetup != SQLITE_OK) {
+            const std::string message = sqliteError ? sqliteError : "unknown sqlite error";
+            sqlite3_free(sqliteError);
+            sqlite3_close(rawDb);
+            throw std::runtime_error("failed to prepare old request log: " + message);
+        }
+        sqlite3_close(rawDb);
+
+        routerai::RequestLogRetentionPolicy ageRetention;
+        ageRetention.maxRows = 100;
+        ageRetention.maxAgeDays = 30;
+        const auto ageResult = maintenance.pruneRequestLogs(ageRetention);
+        require(ageResult.beforeRows == 3, "age retention before-row count mismatch");
+        require(ageResult.afterRows == 2, "age retention did not remove the expired row");
+        require(ageResult.removedRows == 1, "age retention removed-row count mismatch");
 
         std::filesystem::remove_all(root, ignored);
         std::cout << "ManagementFeaturesTests: OK\n";

@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.7.1 - Maintenance release
+
+### Added
+
+- Automatic request-history retention with a default cap of 10,000 rows and 30 days.
+- Main `Maintenance / Doctor` screen with database/request-log/runtime/routing diagnostics.
+- Routing repair for stale account references and invalid manual selections.
+- Explicit orphan runtime-folder cleanup under `.routerai/accounts`.
+- Missing credential-reference and missing Codex-runtime diagnostics.
+- `smoke-api.ps1` for local `/health`, authenticated `/v1/models`, and opt-in real completion checks.
+- `docs/SMOKE_TEST.md` with Windows/provider smoke-test steps.
+- Regression coverage for retention, routing repair, missing credentials and orphan runtime cleanup.
+
+### Changed
+
+- Version bumped to 0.7.1.
+- Provider Console uses the generated project version instead of a hard-coded 0.6.0 label.
+- Windows and Linux package names now use 0.7.1.
+- Request-log auto-retention is best-effort so cleanup failure does not turn a successful provider response into an API failure.
+
+### Safety / maintenance
+
+- Runtime cleanup removes only direct orphan children of `.routerai/accounts`; it does not touch active account runtime paths.
+- Request-history retention continues to store routing metadata only; prompt and successful completion bodies remain excluded.
+- Provider completion smoke testing is opt-in with `-Completion` so the default smoke test does not consume provider quota.
+
+### Verification
+
+- GitHub Actions remains Linux-only.
+- Windows validation remains local with `test.cmd` and `package.cmd`.
+
 ## 0.7.0 - Management release
 
 ### Added

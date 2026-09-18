@@ -35,7 +35,8 @@ void ensureRequestLogTable(sqlite3* db) {
         "success INTEGER NOT NULL DEFAULT 0,"
         "error TEXT NOT NULL DEFAULT ''"
         ");"
-        "CREATE INDEX IF NOT EXISTS idx_request_logs_created_at ON request_logs(id DESC);";
+        "CREATE INDEX IF NOT EXISTS idx_request_logs_created_at ON request_logs(id DESC);"
+        "CREATE INDEX IF NOT EXISTS idx_request_logs_created_at_value ON request_logs(created_at);";
     char* error = nullptr;
     if (sqlite3_exec(db, sql, nullptr, nullptr, &error) != SQLITE_OK) {
         const std::string message = error ? error : sqlite3_errmsg(db);
@@ -57,6 +58,72 @@ void executeWithId(sqlite3* db, const char* sql, const std::string& id) {
     sqlite3_stmt* stmt = nullptr;
     check(sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr), db, "prepare account cleanup");
     sqlite3_bind_text(stmt, 1, id.c_str(), -1, SQLITE_TRANSIENT);
+    const int rc = sqlite3_step(stmt);
+    if (rc != SQLITE_DONE) {
+        const std::string message = sqlite3_errmsg(db);
+        sqlite3_finalize(stmt);
+        throw std::runtime_error(message);
+    }
+    sqlite3_finalize(stmt);
+}
+
+std::size_t requestLogCount(sqlite3* db) {
+    sqlite3_stmt* stmt = nullptr;
+    check(
+        sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM request_logs;", -1, &stmt, nullptr),
+        db,
+        "prepare request log count");
+    const int rc = sqlite3_step(stmt);
+    if (rc != SQLITE_ROW) {
+        const std::string message = sqlite3_errmsg(db);
+        sqlite3_finalize(stmt);
+        throw std::runtime_error(message);
+    }
+    const auto count = static_cast<std::size_t>(sqlite3_column_int64(stmt, 0));
+    sqlite3_finalize(stmt);
+    return count;
+}
+
+void applyRequestLogRetention(sqlite3* db, const RequestLogRetentionPolicy& policy) {
+    if (policy.maxAgeDays > 0) {
+        sqlite3_stmt* stmt = nullptr;
+        check(
+            sqlite3_prepare_v2(
+                db,
+                "DELETE FROM request_logs WHERE created_at < datetime('now', ?);",
+                -1,
+                &stmt,
+                nullptr),
+            db,
+            "prepare request log age retention");
+        const std::string modifier = "-" + std::to_string(policy.maxAgeDays) + " days";
+        sqlite3_bind_text(stmt, 1, modifier.c_str(), -1, SQLITE_TRANSIENT);
+        const int rc = sqlite3_step(stmt);
+        if (rc != SQLITE_DONE) {
+            const std::string message = sqlite3_errmsg(db);
+            sqlite3_finalize(stmt);
+            throw std::runtime_error(message);
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    if (policy.maxRows == 0) {
+        exec(db, "DELETE FROM request_logs;");
+        return;
+    }
+
+    sqlite3_stmt* stmt = nullptr;
+    check(
+        sqlite3_prepare_v2(
+            db,
+            "DELETE FROM request_logs "
+            "WHERE id NOT IN (SELECT id FROM request_logs ORDER BY id DESC LIMIT ?);",
+            -1,
+            &stmt,
+            nullptr),
+        db,
+        "prepare request log row retention");
+    sqlite3_bind_int64(stmt, 1, static_cast<sqlite3_int64>(policy.maxRows));
     const int rc = sqlite3_step(stmt);
     if (rc != SQLITE_DONE) {
         const std::string message = sqlite3_errmsg(db);
@@ -107,6 +174,15 @@ void SQLiteDatabase::recordRequestLog(const RequestLogEntry& entry) {
     sqlite3_bind_text(stmt, 9, entry.error.c_str(), -1, SQLITE_TRANSIENT);
     check(sqlite3_step(stmt), db_, "insert request log");
     sqlite3_finalize(stmt);
+
+    // Keep long-running router processes bounded without making cleanup a
+    // separate operational requirement. A retention failure must not turn a
+    // successfully routed request into an API failure, so this pass is
+    // intentionally best-effort; Doctor can run it explicitly later.
+    try {
+        applyRequestLogRetention(db_, RequestLogRetentionPolicy{});
+    } catch (...) {
+    }
 }
 
 std::vector<RequestLogEntry> SQLiteDatabase::listRequestLogs(std::size_t limit) const {
@@ -136,6 +212,24 @@ std::vector<RequestLogEntry> SQLiteDatabase::listRequestLogs(std::size_t limit) 
         result.push_back(std::move(entry));
     }
     sqlite3_finalize(stmt);
+    return result;
+}
+
+std::size_t SQLiteDatabase::countRequestLogs() const {
+    ensureRequestLogTable(db_);
+    return requestLogCount(db_);
+}
+
+RequestLogMaintenanceResult SQLiteDatabase::pruneRequestLogs(
+    const RequestLogRetentionPolicy& policy) {
+    ensureRequestLogTable(db_);
+
+    RequestLogMaintenanceResult result;
+    result.beforeRows = requestLogCount(db_);
+    applyRequestLogRetention(db_, policy);
+    result.afterRows = requestLogCount(db_);
+    result.removedRows =
+        result.beforeRows >= result.afterRows ? result.beforeRows - result.afterRows : 0;
     return result;
 }
 

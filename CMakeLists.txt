@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(routerAI VERSION 0.7.0 LANGUAGES CXX)
+project(routerAI VERSION 0.7.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -31,6 +31,7 @@ add_executable(router
     src/core/CompletionStream.cpp
     src/core/ConfigManager.cpp
     src/core/FailurePolicy.cpp
+    src/core/MaintenanceManager.cpp
     src/core/RoutingManager.cpp
     src/desktop/DesktopAccountSwitcher.cpp
     src/desktop/DesktopProfileManager.cpp
@@ -139,12 +140,17 @@ if(BUILD_TESTING)
         src/core/AccountSelector.cpp
         src/core/ConfigManager.cpp
         src/core/FailurePolicy.cpp
+        src/core/MaintenanceManager.cpp
         src/core/RoutingManager.cpp
+        src/security/CredentialStore.cpp
         src/storage/SQLiteDatabase.cpp
         src/storage/SQLiteDatabaseExtras.cpp
     )
     target_include_directories(router_management_tests PRIVATE src)
     target_link_libraries(router_management_tests PRIVATE unofficial::sqlite3::sqlite3 nlohmann_json::nlohmann_json)
+    if(WIN32)
+        target_link_libraries(router_management_tests PRIVATE crypt32)
+    endif()
 
     add_executable(router_local_api_tests
         tests/LocalApiServerTests.cpp

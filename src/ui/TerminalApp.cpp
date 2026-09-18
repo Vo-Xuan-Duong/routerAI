@@ -1,10 +1,13 @@
 #include "ui/TerminalApp.hpp"
 
 #include "api/LocalApiServer.hpp"
+#include "Version.hpp"
+#include "core/MaintenanceManager.hpp"
 #include "providers/antigravity/AntigravityApiClient.hpp"
 #include "providers/antigravity/AntigravityProvider.hpp"
 #include "providers/codex/CodexProvider.hpp"
 #include "providers/zai/ZaiProvider.hpp"
+#include "security/CredentialStore.hpp"
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/component_options.hpp>
@@ -51,7 +54,7 @@ Element keyHint(const std::string& keys, const std::string& action) {
 Element appHeader(const std::string& subtitle = {}) {
     Elements items;
     items.push_back(text(" routerAI ") | bold | color(Color::Cyan));
-    items.push_back(text("0.6.0") | dim);
+    items.push_back(text(kVersion) | dim);
     if (!subtitle.empty()) items.push_back(text("  /  " + subtitle) | dim);
     items.push_back(filler());
     items.push_back(text("Multi-provider Account Router ") | dim);
@@ -689,15 +692,27 @@ void TerminalApp::showBestAccount() {
 void TerminalApp::showDoctor() {
     CodexProvider codex;
     AntigravityProvider antigravity;
+    CredentialStore credentials;
+    MaintenanceManager maintenance(database_, routing_, credentials);
+    const auto report = maintenance.inspect();
+
     const bool codexInstalled = codex.cliInstalled();
     const bool antigravityInstalled = antigravity.cliInstalled();
     std::vector<std::string> lines = {
-        "Database               : OK (" + database_.path() + ")",
+        "Database               : OK (" + database_.path() + ", " +
+            std::to_string(report.databaseBytes) + " bytes)",
+        "Request history        : " + std::to_string(report.requestLogRows) +
+            " rows (auto retention 30 days / 10,000 rows)",
+        "Missing credential refs: " + std::to_string(report.missingCredentialRefs),
+        "Invalid routing refs   : " + std::to_string(report.invalidRoutingMembers),
+        "Orphan runtime folders : " + std::to_string(report.orphanRuntimeDirectories),
+        "Missing Codex runtimes : " + std::to_string(report.missingRuntimeDirectories),
         std::string("Local API              : ") + (api_.running() ? "OK " : "FAILED ") + api_.baseUrl(),
         std::string("Codex runtime          : ") + (codexInstalled ? "OK" : "NOT BOOTSTRAPPED YET"),
         std::string("Antigravity consumer CLI: ") + (antigravityInstalled ? "OK" : "NOT INSTALLED"),
         "Antigravity Agent API  : adapter + credential validation available",
         "Z.ai General API       : documented endpoint adapter available",
+        "Maintenance actions    : available from the main Management / Doctor screen",
     };
     if (codexInstalled) lines.push_back("Codex version: " + codex.cliVersion());
     if (antigravityInstalled) lines.push_back("agy version  : " + antigravity.cliVersion());
