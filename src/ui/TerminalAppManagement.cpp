@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <iomanip>
+#include <iterator>
 #include <map>
 #include <sstream>
 
