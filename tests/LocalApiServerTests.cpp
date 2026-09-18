@@ -55,6 +55,28 @@ int main() {
 
         routerai::CredentialStore credentials(secretPath);
         routerai::AccountManager accounts(database, credentials);
+
+        routerai::Account selectorModeA;
+        selectorModeA.id = "selector-mode-a";
+        selectorModeA.provider = "selector-test";
+        selectorModeA.providerMode = "mode-a";
+        selectorModeA.displayName = "Selector mode A";
+        selectorModeA.status = routerai::AccountStatus::Ready;
+        selectorModeA.enabled = true;
+        database.insertAccount(selectorModeA);
+
+        routerai::Account selectorModeB = selectorModeA;
+        selectorModeB.id = "selector-mode-b";
+        selectorModeB.providerMode = "mode-b";
+        selectorModeB.displayName = "Selector mode B";
+        database.insertAccount(selectorModeB);
+
+        const auto modeBSelection = accounts.selectAccount("selector-test", "mode-b");
+        require(modeBSelection.has_value(), "provider-mode account selection must find an eligible account");
+        require(
+            modeBSelection->account.id == "selector-mode-b",
+            "provider-mode account selection must not mix provider modes");
+
         routerai::RoutingManager routing(database);
         routing.syncDefaultGroups();
         routerai::CompletionRouter completions(database, credentials, routing);

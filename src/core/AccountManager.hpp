@@ -61,6 +61,9 @@ public:
         std::size_t limit = 50) const;
     std::optional<RoutingCandidate> selectAccount(
         const std::string& provider = "codex") const;
+    std::optional<RoutingCandidate> selectAccount(
+        const std::string& provider,
+        const std::string& providerMode) const;
 
     std::optional<Account> findAccount(const std::string& accountId) const;
     std::vector<Account> listAccounts() const;

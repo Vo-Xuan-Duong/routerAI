@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.8.2 - Quota advisor
+
+### Added
+
+- Main TUI Quota Advisor for Codex subscription-runtime and Antigravity consumer-cli accounts.
+- Provider + provider-mode account selection so recommendations do not mix consumer and API-project modes.
+- Consumer status/quota refresh from the advisor using existing supported provider adapters.
+- Operator action to apply a recommendation to the provider's manual default routing group.
+- Regression coverage proving provider-mode recommendation filtering.
+
+### Selection behavior
+
+Recommendations rank only eligible enabled accounts outside cooldown and prefer:
+
+1. READY over WARNING.
+2. Accounts with known quota snapshots over unknown quota.
+3. Lower latest normalized quota usage.
+4. Higher operator priority.
+5. Stable account ID ordering.
+
+### Safety / provider boundary
+
+- Recommendations do not automatically switch external desktop/browser sessions.
+- Applying a recommendation changes routerAI's manual routing-group selection only.
+- No cookies, OAuth state, client databases or credentials are copied between profiles.
+- Quota refresh remains restricted to supported Codex runtime and Antigravity consumer CLI interfaces.
+
 ## 0.8.1 - Interactive dashboard
 
 ### Added

@@ -391,9 +391,17 @@ std::vector<QuotaHistoryEntry> AccountManager::listQuotaHistory(
 }
 
 std::optional<RoutingCandidate> AccountManager::selectAccount(const std::string& provider) const {
+    return selectAccount(provider, {});
+}
+
+std::optional<RoutingCandidate> AccountManager::selectAccount(
+    const std::string& provider,
+    const std::string& providerMode) const {
     std::vector<RoutingCandidate> candidates;
     for (const auto& account : database_.listAccounts()) {
         if (account.provider != provider) continue;
+        if (!providerMode.empty() && account.providerMode != providerMode) continue;
+
         RoutingCandidate candidate;
         candidate.account = account;
         candidate.latestUsedPercent = latestUsedPercent(database_.listQuotaHistory(account.id, 100));
