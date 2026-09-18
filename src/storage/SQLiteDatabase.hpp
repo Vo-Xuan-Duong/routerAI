@@ -39,6 +39,9 @@ public:
 
     void recordRequestLog(const RequestLogEntry& entry);
     std::vector<RequestLogEntry> listRequestLogs(std::size_t limit = 200) const;
+    std::size_t countRequestLogs() const;
+    RequestLogMaintenanceResult pruneRequestLogs(
+        const RequestLogRetentionPolicy& policy = {});
     void clearRequestLogs();
 
     void saveRoutingGroup(const RoutingGroup& group);
