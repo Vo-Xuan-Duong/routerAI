@@ -2,7 +2,7 @@
 
 Multi-provider AI account/runtime manager, localhost OpenAI-compatible router, terminal control plane, and embedded Web Admin written in C++20.
 
-Current release: **0.8.5**.
+Current release: **0.8.6**.
 
 routerAI separates four concerns:
 
@@ -452,7 +452,7 @@ Windows prerequisites:
 - Ninja
 - vcpkg
 
-`configure.cmd` automatically locates Visual Studio with `vswhere` and activates the x64 MSVC environment when `cl.exe` is not already on `PATH`.
+`configure.cmd` always locates Visual Studio with `vswhere` and activates the x64 MSVC environment, even when a generic Developer Command Prompt already exposes an x86 `cl.exe`.
 
 Development stack:
 
@@ -571,9 +571,11 @@ The package workflow is also Linux-only on GitHub Actions and runs manually or f
                  -> detect/launch + supported future switch adapters
 ```
 
-## 0.8.5 status
+## 0.8.6 status
 
 ```text
+[done] Windows configure/build helpers force the x64 MSVC environment
+[done] incomplete/x86 CMake caches are repaired automatically
 [done] Windows source build migrated from unsupported MinGW to MSVC + x64-windows
 [done] Windows pull-request CI added to prevent platform-specific build regressions
 [done] explicit Windows 10 API target for cpp-httplib
