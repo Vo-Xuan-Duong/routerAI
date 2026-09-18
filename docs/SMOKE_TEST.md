@@ -16,7 +16,7 @@ Expected:
 - CTest passes.
 - `router.exe` opens the management TUI.
 - Web Admin opens at `http://127.0.0.1:9000/admin`.
-- `dist\\routerAI-<version>-windows-x64.zip` is created by `package`.
+- `dist\routerAI-<version>-windows-x64.zip` is created by `package`.
 
 ## 2. Local API control-plane check
 
@@ -31,7 +31,7 @@ In another PowerShell window:
 
 ```powershell
 $env:ROUTERAI_KEY="router-local-..."
-.\\smoke-api.ps1
+.\smoke-api.ps1
 ```
 
 This checks `GET /health` and authenticated `GET /v1/models`. It does not send a provider completion or consume provider quota.
@@ -43,13 +43,13 @@ Only add `-Completion` when you intentionally want to make a real provider reque
 ### Z.ai General API
 
 ```powershell
-.\\smoke-api.ps1 -Completion -Group zai-default -Model "<zai-model>"
+.\smoke-api.ps1 -Completion -Group zai-default -Model "<zai-model>"
 ```
 
 ### Antigravity Gemini API project
 
 ```powershell
-.\\smoke-api.ps1 -Completion -Group antigravity-api-default -Model "<antigravity-model>"
+.\smoke-api.ps1 -Completion -Group antigravity-api-default -Model "<antigravity-model>"
 ```
 
 ### Codex manual account
@@ -57,13 +57,13 @@ Only add `-Completion` when you intentionally want to make a real provider reque
 Select the account first in `codex-default`, then:
 
 ```powershell
-.\\smoke-api.ps1 -Completion -Group codex-default -Model "<codex-model>"
+.\smoke-api.ps1 -Completion -Group codex-default -Model "<codex-model>"
 ```
 
 ### Mixed routing
 
 ```powershell
-.\\smoke-api.ps1 -Completion -Group mixed-default -Model router/mixed-default -ZaiModel "<zai-model>" -AntigravityModel "<antigravity-model>"
+.\smoke-api.ps1 -Completion -Group mixed-default -Model router/mixed-default -ZaiModel "<zai-model>" -AntigravityModel "<antigravity-model>"
 ```
 
 ## 4. Management checks
