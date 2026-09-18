@@ -144,7 +144,7 @@ It shows:
 - a second automatic candidate with the primary excluded
 - manual selection for consumer/manual groups
 - member status, priority, latest quota snapshot and cooldown state
-- whether the group currently has an executable completion backend
+- whether the group is completion-capable and whether it is currently routable
 
 Round-robin previews are side-effect-free: opening Routing Health does not advance the persistent round-robin cursor. Manual consumer groups do not auto-select a backup; use Quota Advisor or explicit routing-group controls to change those selections.
 
