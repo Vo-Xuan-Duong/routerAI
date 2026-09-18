@@ -7,6 +7,7 @@
 - Validated `AccountManager::setAccountPriority` lifecycle operation.
 - Account Overview action to edit operator priority without changing config files or SQLite manually.
 - Priority values in Account Overview and Quota Advisor recommendation labels.
+- Dashboard priority-high-to-low sorting.
 - Regression coverage for priority persistence, range rejection and recommendation tie-breaking.
 
 ### Behavior
