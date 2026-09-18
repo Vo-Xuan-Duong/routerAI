@@ -2,7 +2,7 @@
 
 Multi-provider AI account/runtime manager, localhost OpenAI-compatible router, terminal control plane, and embedded Web Admin written in C++20.
 
-Current release: **0.8.3**.
+Current release: **0.8.4**.
 
 routerAI separates four concerns:
 
@@ -81,6 +81,7 @@ routerAI does not invent private Z.ai endpoints for credential/quota discovery.
 routerAI
 ├─ Usage Dashboard
 ├─ Quota Advisor
+├─ Routing Health
 ├─ Account Overview
 ├─ Provider Console
 ├─ Request History
@@ -131,6 +132,21 @@ It supports:
 - writing the recommended account into the provider's manual default routing group
 
 The recommendation is advisory until the operator selects it. Applying it updates routerAI's manual routing selection only; it does not copy credentials, browser cookies, OAuth state, or switch an external desktop application session.
+
+### Routing Health
+
+Routing Health previews the routing decision for every group without consuming a request or changing routing state.
+
+It shows:
+
+- group enabled/disabled state and strategy
+- the primary candidate a real request would select
+- a second automatic candidate with the primary excluded
+- manual selection for consumer/manual groups
+- member status, priority, latest quota snapshot and cooldown state
+- whether the group currently has an executable completion backend
+
+Round-robin previews are side-effect-free: opening Routing Health does not advance the persistent round-robin cursor. Manual consumer groups do not auto-select a backup; use Quota Advisor or explicit routing-group controls to change those selections.
 
 ### Account overview and lifecycle
 
@@ -457,7 +473,7 @@ package
 `package.cmd` assembles a portable directory and:
 
 ```text
-routerAI-0.7.1-windows-x64.zip
+routerAI-<version>-windows-x64.zip
 ```
 
 It copies vcpkg dynamic libraries and discoverable MinGW runtime DLLs into the portable package.
@@ -467,12 +483,12 @@ It copies vcpkg dynamic libraries and discoverable MinGW runtime DLLs into the p
 GitHub Actions is Linux-only. The `package` workflow can be launched manually and also runs for version tags. It builds, tests and produces:
 
 ```text
-routerAI-0.7.1-linux-x64.tar.gz
+routerAI-<version>-linux-x64.tar.gz
 ```
 
 For a `v*` tag, the workflow creates a GitHub Release and attaches the Linux archive. A Windows ZIP can be produced locally with `package.cmd` and attached separately when desired.
 
-The vcpkg revision used by CI/packaging is pinned for reproducible builds instead of following vcpkg `main` on every run.
+Windows and Linux packaging derive the package version from `CMakeLists.txt`, so release filenames stay aligned with the project version. The vcpkg revision used by CI/packaging is pinned for reproducible builds instead of following vcpkg `main` on every run.
 
 ## Tests
 
@@ -516,7 +532,7 @@ GitHub build/test verification is **Linux-only**. Windows is validated locally w
 
 The package workflow is also Linux-only on GitHub Actions and runs manually or for `v*` tags. Development pushes therefore do not repeatedly consume Actions minutes.
 
-`0.7.0` passed Linux Configure + Build + CTest on PR #3. `0.7.1` passed Linux Configure + Build + CTest on PR #4 before merge.
+`0.7.0` passed Linux Configure + Build + CTest on PR #3. `0.7.1` passed on PR #4. `0.8.3` passed on PR #8 before merge.
 
 ## Architecture
 
@@ -545,9 +561,12 @@ The package workflow is also Linux-only on GitHub Actions and runs manually or f
                  -> detect/launch + supported future switch adapters
 ```
 
-## 0.8.3 status
+## 0.8.4 status
 
 ```text
+[done] side-effect-free routing preview API with round-robin cursor protection
+[done] Routing Health primary/backup failover preview for routing groups
+[done] package versions derived from CMake instead of hard-coded release numbers
 [done] Account priority editing from the TUI with validated persistence
 [done] Quota Advisor for mode-aware consumer recommendations + manual selection
 [done] interactive Usage Dashboard with refresh/filter/sort/scroll controls
@@ -565,7 +584,7 @@ The package workflow is also Linux-only on GitHub Actions and runs manually or f
 [done] provider smoke-test guide + opt-in PowerShell smoke script
 [done] desktop switching capability abstraction (fails closed when unsupported)
 
-[verified] Linux Configure + Build + CTest on PR #4
+[verified] Linux Configure + Build + CTest through PR #8
 [local verification] Windows test.cmd + package.cmd
 [provider-dependent] actual Codex Desktop external account switching
 [provider-dependent] actual Antigravity external profile switching
