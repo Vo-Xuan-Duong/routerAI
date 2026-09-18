@@ -522,7 +522,8 @@ void ManagementApp::showUsageDashboard() {
 void ManagementApp::showQuotaAdvisor() {
     const auto candidateLabel = [&](const std::optional<RoutingCandidate>& candidate) {
         if (!candidate) return std::string("no eligible account");
-        std::string label = candidate->account.id + " | " + toString(candidate->account.status);
+        std::string label = candidate->account.id + " | " + toString(candidate->account.status) +
+            " | pri " + std::to_string(candidate->account.priority);
         if (candidate->latestUsedPercent) {
             label += " | quota " + percent(*candidate->latestUsedPercent);
         } else {
@@ -681,6 +682,7 @@ void ManagementApp::manageAccountLifecycle() {
                 account.id + " | " + account.provider + "/" + account.providerMode + " | " +
                 (account.enabled ? toString(account.status) : "DISABLED") +
                 " | quota " + latestUsageText(accounts_, account) +
+                " | pri " + std::to_string(account.priority) +
                 " | " + identity(account));
         }
 
