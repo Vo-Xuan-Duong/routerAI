@@ -73,6 +73,49 @@ std::string formatBytes(std::uintmax_t bytes) {
     return out.str();
 }
 
+bool supportsQuotaRefresh(const Account& account) {
+    return account.provider == "codex" ||
+        (account.provider == "antigravity" && account.providerMode == "consumer-cli");
+}
+
+std::string latestUsageText(AccountManager& accounts, const Account& account) {
+    const auto usage = latestUsage(accounts.listQuotaHistory(account.id, 100));
+    return usage ? percent(*usage) : "-";
+}
+
+std::vector<std::string> quotaSnapshotLines(const QuotaSnapshot& snapshot) {
+    std::vector<std::string> lines;
+    lines.push_back("Account  : " + snapshot.accountId);
+    if (snapshot.ordinaryUsageAllowed.has_value()) {
+        lines.push_back(
+            std::string("Allowed  : ") + (*snapshot.ordinaryUsageAllowed ? "yes" : "no"));
+    }
+
+    for (const auto& bucket : snapshot.buckets) {
+        const std::string bucketName = !bucket.limitName.empty()
+            ? bucket.limitName
+            : (!bucket.limitId.empty() ? bucket.limitId : "quota");
+        if (bucket.windows.empty()) {
+            lines.push_back(bucketName + " : no usage window returned");
+            continue;
+        }
+        for (const auto& window : bucket.windows) {
+            std::string line = bucketName;
+            if (!window.name.empty()) line += " / " + window.name;
+            line += " : " + percent(window.usedPercent);
+            if (window.windowDurationMinutes) {
+                line += " over " + std::to_string(*window.windowDurationMinutes) + " min";
+            }
+            lines.push_back(std::move(line));
+        }
+    }
+
+    if (snapshot.buckets.empty()) {
+        lines.push_back("Provider returned no machine-readable quota buckets.");
+    }
+    return lines;
+}
+
 bool openUrl(const std::string& url) {
 #ifdef _WIN32
     return ProcessRunner::runInteractive("start \"\" \"" + url + "\"") == 0;
@@ -102,7 +145,7 @@ int ManagementApp::run() {
             "routerAI " + std::string(kVersion),
             {
                 "Usage Dashboard",
-                "Account Controls",
+                "Account Overview",
                 "Provider Console",
                 "Request History",
                 "Config Export / Import",
@@ -209,29 +252,129 @@ void ManagementApp::manageAccountLifecycle() {
     while (true) {
         const auto accounts = accounts_.listAccounts();
         std::vector<std::string> entries;
+        entries.reserve(accounts.size() + 3);
+
         for (const auto& account : accounts) {
             entries.push_back(
-                account.id + " | " + account.provider + " | " +
-                (account.enabled ? toString(account.status) : "DISABLED") + " | " + identity(account));
+                account.id + " | " + account.provider + "/" + account.providerMode + " | " +
+                (account.enabled ? toString(account.status) : "DISABLED") +
+                " | quota " + latestUsageText(accounts_, account) +
+                " | " + identity(account));
         }
+
+        const int refreshStatusesIndex = static_cast<int>(entries.size());
+        entries.push_back("Refresh all account statuses");
+        const int refreshQuotasIndex = static_cast<int>(entries.size());
+        entries.push_back("Refresh all supported quota snapshots");
         entries.push_back("Back");
+
         const int selected = chooseOption(
-            "Account Controls",
+            "Account Overview",
             entries,
-            "Enable/disable affects routing. Remove deletes local account credential/profile state.");
+            "Select an account to refresh status/quota, enable/disable it, inspect details, or remove it.");
+
+        if (selected == refreshStatusesIndex) {
+            std::size_t refreshed = 0;
+            std::size_t attention = 0;
+            std::size_t failed = 0;
+            std::vector<std::string> lines;
+
+            for (const auto& account : accounts) {
+                try {
+                    const auto outcome = accounts_.refreshAccountStatus(account.id);
+                    ++refreshed;
+                    if (!outcome.auth.authenticated) {
+                        ++attention;
+                        lines.push_back(
+                            account.id + ": " +
+                            (outcome.auth.detail.empty() ? "authentication needs attention" : outcome.auth.detail));
+                    }
+                } catch (const std::exception& exception) {
+                    ++failed;
+                    lines.push_back(account.id + ": " + exception.what());
+                }
+            }
+
+            routing_.syncDefaultGroups();
+            lines.insert(lines.begin(), {
+                "Refreshed : " + std::to_string(refreshed),
+                "Attention : " + std::to_string(attention),
+                "Failed    : " + std::to_string(failed),
+            });
+            showMessage("Account status refresh", lines, failed > 0);
+            continue;
+        }
+
+        if (selected == refreshQuotasIndex) {
+            std::size_t refreshed = 0;
+            std::size_t skipped = 0;
+            std::size_t failed = 0;
+            std::vector<std::string> lines;
+
+            for (const auto& account : accounts) {
+                if (!supportsQuotaRefresh(account)) {
+                    ++skipped;
+                    continue;
+                }
+                try {
+                    accounts_.readQuota(account.id);
+                    ++refreshed;
+                } catch (const std::exception& exception) {
+                    ++failed;
+                    lines.push_back(account.id + ": " + exception.what());
+                }
+            }
+
+            routing_.syncDefaultGroups();
+            lines.insert(lines.begin(), {
+                "Refreshed : " + std::to_string(refreshed),
+                "Skipped   : " + std::to_string(skipped) + " (provider exposes no supported quota reader)",
+                "Failed    : " + std::to_string(failed),
+            });
+            showMessage("Quota refresh", lines, failed > 0);
+            continue;
+        }
+
         if (selected < 0 || static_cast<std::size_t>(selected) >= accounts.size()) return;
 
         const Account account = accounts[static_cast<std::size_t>(selected)];
         const std::string toggle = account.enabled ? "Disable account" : "Enable account";
         const int action = chooseOption(
             account.id,
-            {toggle, "Remove account", "Details", "Back"},
+            {"Refresh status", "Refresh quota", toggle, "Remove account", "Details", "Back"},
             account.provider + " / " + account.providerMode + " / " + identity(account));
+
         if (action == 0) {
+            const auto outcome = accounts_.refreshAccountStatus(account.id);
+            routing_.syncDefaultGroups();
+            showMessage(
+                "Account refreshed",
+                {
+                    "Status   : " + toString(outcome.account.status),
+                    "Identity : " + identity(outcome.account),
+                    "Plan     : " + (outcome.account.planType.empty() ? std::string("-") : outcome.account.planType),
+                    "Auth     : " + (outcome.auth.detail.empty() ? std::string("-") : outcome.auth.detail),
+                },
+                !outcome.auth.authenticated);
+        } else if (action == 1) {
+            if (!supportsQuotaRefresh(account)) {
+                showMessage(
+                    "Quota unavailable",
+                    {
+                        "No supported machine-readable quota reader exists for " +
+                            account.provider + "/" + account.providerMode + ".",
+                        "The account can still be routed/validated using its supported provider interfaces.",
+                    });
+                continue;
+            }
+            const auto snapshot = accounts_.readQuota(account.id);
+            routing_.syncDefaultGroups();
+            showMessage("Quota snapshot", quotaSnapshotLines(snapshot));
+        } else if (action == 2) {
             accounts_.setAccountEnabled(account.id, !account.enabled);
             routing_.syncDefaultGroups();
             showMessage("Account updated", {account.id + (account.enabled ? " disabled" : " enabled")});
-        } else if (action == 1) {
+        } else if (action == 3) {
             const int confirm = chooseOption(
                 "Remove " + account.id + "?",
                 {"Cancel", "Remove permanently"},
@@ -241,15 +384,23 @@ void ManagementApp::manageAccountLifecycle() {
                 routing_.syncDefaultGroups();
                 showMessage("Account removed", {account.id});
             }
-        } else if (action == 2) {
-            showMessage(account.id, {
-                "Provider : " + account.provider,
-                "Mode     : " + account.providerMode,
-                "Identity : " + identity(account),
-                "Status   : " + toString(account.status),
-                std::string("Enabled  : ") + (account.enabled ? "yes" : "no"),
-                "Priority : " + std::to_string(account.priority),
-            });
+        } else if (action == 4) {
+            const auto current = accounts_.findAccount(account.id).value_or(account);
+            std::vector<std::string> lines = {
+                "Provider : " + current.provider,
+                "Mode     : " + current.providerMode,
+                "Identity : " + identity(current),
+                "Status   : " + toString(current.status),
+                std::string("Enabled  : ") + (current.enabled ? "yes" : "no"),
+                "Priority : " + std::to_string(current.priority),
+                "Plan     : " + (current.planType.empty() ? std::string("-") : current.planType),
+                "Quota    : " + latestUsageText(accounts_, current),
+            };
+            if (!current.lastError.empty()) lines.push_back("Last error: " + current.lastError);
+            if (current.cooldownUntilUnix) {
+                lines.push_back("Cooldown until unix: " + std::to_string(*current.cooldownUntilUnix));
+            }
+            showMessage(current.id, lines);
         }
     }
 }
