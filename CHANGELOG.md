@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.8.0 - Account overview
+
+### Added
+
+- Main TUI Account Overview with per-account status refresh and supported live quota refresh.
+- Best-effort bulk account-status refresh that continues when an individual provider/account fails.
+- Best-effort bulk quota refresh for providers/modes with supported machine-readable quota readers.
+- Inline latest quota percentage in the selectable account list.
+- Expanded account details with plan, latest quota, last error and cooldown information.
+
+### Changed
+
+- Main management menu now names the account screen `Account Overview` to reflect that it is an operational control surface rather than lifecycle-only controls.
+- Version bumped to 0.8.0 and the local Windows package name updated accordingly.
+- Provider-specific quota limitations remain explicit: unsupported provider/modes are skipped rather than guessed or scraped.
+
+### Safety / behavior
+
+- Bulk refresh isolates failures per account; a failed refresh does not stop remaining accounts.
+- Refresh operations reuse the existing documented provider adapters and do not add browser-session scraping or private quota endpoints.
+- Account enable/disable remains an operator routing switch and does not erase the last known auth/quota health.
+
 ## 0.7.1 - Maintenance release
 
 ### Added
