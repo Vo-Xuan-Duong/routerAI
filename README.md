@@ -2,7 +2,7 @@
 
 Multi-provider AI account/runtime manager, localhost OpenAI-compatible router, terminal control plane, and embedded Web Admin written in C++20.
 
-Current release: **0.7.0**.
+Current development release: **0.7.1**.
 
 routerAI separates four concerns:
 
@@ -84,6 +84,7 @@ routerAI
 ├─ Provider Console
 ├─ Request History
 ├─ Config Export / Import
+├─ Maintenance / Doctor
 ├─ Web Admin
 └─ Exit
 ```
@@ -186,6 +187,15 @@ bounded error text
 ```
 
 Prompt bodies and successful provider response bodies are not stored in request history.
+
+Request-history retention is automatic and bounded by default:
+
+```text
+maximum rows  10,000
+maximum age   30 days
+```
+
+The main `Maintenance / Doctor` screen can run the same retention pass manually and shows database footprint, request-log count, missing credential references, invalid routing references, orphan runtime folders and missing Codex runtime directories.
 
 ## Routing groups
 
@@ -412,7 +422,7 @@ package
 `package.cmd` assembles a portable directory and:
 
 ```text
-routerAI-0.7.0-windows-x64.zip
+routerAI-0.7.1-windows-x64.zip
 ```
 
 It copies vcpkg dynamic libraries and discoverable MinGW runtime DLLs into the portable package.
@@ -422,7 +432,7 @@ It copies vcpkg dynamic libraries and discoverable MinGW runtime DLLs into the p
 GitHub Actions is Linux-only. The `package` workflow can be launched manually and also runs for version tags. It builds, tests and produces:
 
 ```text
-routerAI-0.7.0-linux-x64.tar.gz
+routerAI-0.7.1-linux-x64.tar.gz
 ```
 
 For a `v*` tag, the workflow creates a GitHub Release and attaches the Linux archive. A Windows ZIP can be produced locally with `package.cmd` and attached separately when desired.
@@ -454,6 +464,8 @@ Run Windows tests locally:
 test
 ```
 
+For the release/provider smoke-test flow, see `docs/SMOKE_TEST.md`. The included `smoke-api.ps1` checks `/health` and authenticated `/v1/models` without consuming provider quota; a real completion runs only when `-Completion` is supplied explicitly.
+
 ## CI policy
 
 Normal pushes do not run build CI.
@@ -469,7 +481,7 @@ GitHub build/test verification is **Linux-only**. Windows is validated locally w
 
 The package workflow is also Linux-only on GitHub Actions and runs manually or for `v*` tags. Development pushes therefore do not repeatedly consume Actions minutes.
 
-`0.7.0` passed its Linux Configure + Build + CTest verification on PR #3 before merge into `main`.
+`0.7.0` passed Linux Configure + Build + CTest on PR #3. `0.7.1` is the maintenance follow-up and is merged only after its Linux PR verification passes.
 
 ## Architecture
 
@@ -498,21 +510,23 @@ The package workflow is also Linux-only on GitHub Actions and runs manually or f
                  -> detect/launch + supported future switch adapters
 ```
 
-## 0.7.0 status
+## 0.7.1 status
 
 ```text
 [done] remove/enable/disable account controls
-[done] secret-free config export/import
-[done] config-import credential rebinding hardening
+[done] secret-free config export/import + credential-rebinding hardening
 [done] persistent request history / log viewer
+[done] automatic request-log retention (10,000 rows / 30 days)
+[done] Maintenance / Doctor diagnostics and repair actions
+[done] routing-reference repair + orphan runtime cleanup
 [done] improved usage dashboard
-[done] CPack + local Windows package helper
-[done] Linux-only GitHub build/test and binary packaging workflow
+[done] local Windows package helper + Linux-only GitHub packaging
 [done] embedded localhost Web Admin
-[done] Web provider add/login/key/refresh/account controls
+[done] provider smoke-test guide + opt-in PowerShell smoke script
 [done] desktop switching capability abstraction (fails closed when unsupported)
-[verified] Linux Configure + Build + CTest on PR #3
 
+[pending verification] Linux Configure + Build + CTest for the 0.7.1 PR
+[local verification] Windows test.cmd + package.cmd
 [provider-dependent] actual Codex Desktop external account switching
 [provider-dependent] actual Antigravity external profile switching
 [optional] native macOS Keychain backend
