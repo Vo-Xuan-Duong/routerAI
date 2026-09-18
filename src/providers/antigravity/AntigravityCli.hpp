@@ -21,6 +21,7 @@ public:
     int login() const;
     AntigravityCliStatus status() const;
     QuotaSnapshot readQuota() const;
+    static QuotaSnapshot parseQuotaOutput(const std::string& output);
 
 private:
     static std::string trim(std::string value);

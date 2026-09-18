@@ -189,9 +189,40 @@ int ManagementApp::run() {
 }
 
 void ManagementApp::showUsageDashboard() {
+    struct QuotaSubBar {
+        std::string label;
+        double usedPercent{0.0};
+    };
+
     struct UsageRow {
         Account account;
         std::optional<double> usage;
+        std::vector<QuotaSubBar> subBars;
+    };
+
+    auto extractSubBars = [](const std::vector<QuotaHistoryEntry>& history) -> std::vector<QuotaSubBar> {
+        if (history.empty()) return {};
+        const auto snapshotId = history.front().snapshotId;
+        std::vector<QuotaSubBar> bars;
+        std::vector<std::string> groupOrder;
+        std::map<std::string, double> highestByGroup;
+
+        for (const auto& item : history) {
+            if (item.snapshotId != snapshotId) break;
+            std::string group = !item.model.empty() ? item.model : (!item.limitName.empty() ? item.limitName : item.limitId);
+            if (group.empty()) group = "Default";
+            if (highestByGroup.find(group) == highestByGroup.end()) {
+                highestByGroup[group] = item.usedPercent;
+                groupOrder.push_back(group);
+            } else {
+                highestByGroup[group] = std::max(highestByGroup[group], item.usedPercent);
+            }
+        }
+
+        for (const auto& group : groupOrder) {
+            bars.push_back({group, highestByGroup[group]});
+        }
+        return bars;
     };
 
     std::vector<Account> accountSnapshot;
@@ -245,7 +276,14 @@ void ManagementApp::showUsageDashboard() {
             } else {
                 ++warning;
             }
-            usageRows.push_back({account, latestUsage(accounts_.listQuotaHistory(account.id, 100))});
+            auto history = accounts_.listQuotaHistory(account.id, 100);
+            if (history.empty() && account.enabled && account.status == AccountStatus::Ready && supportsQuotaRefresh(account)) {
+                try {
+                    accounts_.readQuota(account.id);
+                    history = accounts_.listQuotaHistory(account.id, 100);
+                } catch (...) {}
+            }
+            usageRows.push_back({account, latestUsage(history), extractSubBars(history)});
         }
 
         providerFilters.clear();
@@ -357,9 +395,25 @@ void ManagementApp::showUsageDashboard() {
         for (std::size_t index = scrollOffset; index < endIndex; ++index) {
             const auto& row = filtered[index];
             const double ratio = row.usage ? std::clamp(*row.usage / 100.0, 0.0, 1.0) : 0.0;
-            Element bar = row.usage
-                ? hbox({gauge(ratio) | flex, text(" " + percent(*row.usage)) | size(WIDTH, EQUAL, 8)})
-                : text("No quota snapshot") | dim;
+            Elements barElements;
+            if (row.subBars.size() > 1) {
+                for (const auto& sub : row.subBars) {
+                    const double r = std::clamp(sub.usedPercent / 100.0, 0.0, 1.0);
+                    barElements.push_back(hbox({
+                        text("  " + sub.label) | size(WIDTH, EQUAL, 24) | dim,
+                        gauge(static_cast<float>(r)) | flex,
+                        text(" " + percent(sub.usedPercent)) | size(WIDTH, EQUAL, 8),
+                    }));
+                }
+            } else if (row.usage) {
+                barElements.push_back(hbox({
+                    gauge(static_cast<float>(ratio)) | flex,
+                    text(" " + percent(*row.usage)) | size(WIDTH, EQUAL, 8),
+                }));
+            } else {
+                barElements.push_back(text("No quota snapshot") | dim);
+            }
+
             rows.push_back(vbox({
                 hbox({
                     text(row.account.id) | bold | size(WIDTH, EQUAL, 18),
@@ -368,7 +422,7 @@ void ManagementApp::showUsageDashboard() {
                     text(row.account.enabled ? toString(row.account.status) : "DISABLED") |
                         color(row.account.enabled ? statusColor(row.account.status) : Color::GrayDark),
                 }),
-                bar,
+                vbox(std::move(barElements)),
             }) | border);
         }
         if (rows.empty()) {
@@ -485,7 +539,13 @@ void ManagementApp::showUsageDashboard() {
                 try {
                     const auto outcome = accounts_.refreshAccountStatus(account.id);
                     ++refreshed;
-                    if (!outcome.auth.authenticated) ++attention;
+                    if (!outcome.auth.authenticated) {
+                        ++attention;
+                    } else if (supportsQuotaRefresh(outcome.account)) {
+                        try {
+                            accounts_.readQuota(outcome.account.id);
+                        } catch (...) {}
+                    }
                 } catch (...) {
                     ++failed;
                 }

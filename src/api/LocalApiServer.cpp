@@ -282,7 +282,28 @@ void LocalApiServer::configureAdminRoutes() {
         for (const auto& account : accounts_.listAccounts()) {
             if (account.status == AccountStatus::Ready && account.enabled) ++ready;
             if (account.status == AccountStatus::Warning && account.enabled) ++warning;
-            const auto usage = latestUsage(accounts_.listQuotaHistory(account.id, 100));
+            const auto history = accounts_.listQuotaHistory(account.id, 100);
+            const auto usage = latestUsage(history);
+            nlohmann::json quotaBuckets = nlohmann::json::array();
+            if (!history.empty()) {
+                const auto snapshotId = history.front().snapshotId;
+                std::map<std::string, double> highestByGroup;
+                std::vector<std::string> groupOrder;
+                for (const auto& item : history) {
+                    if (item.snapshotId != snapshotId) break;
+                    std::string group = !item.model.empty() ? item.model : (!item.limitName.empty() ? item.limitName : item.limitId);
+                    if (group.empty()) group = "Default";
+                    if (highestByGroup.find(group) == highestByGroup.end()) {
+                        highestByGroup[group] = item.usedPercent;
+                        groupOrder.push_back(group);
+                    } else {
+                        highestByGroup[group] = std::max(highestByGroup[group], item.usedPercent);
+                    }
+                }
+                for (const auto& group : groupOrder) {
+                    quotaBuckets.push_back({{"name", group}, {"used", highestByGroup[group]}});
+                }
+            }
             accountData.push_back({
                 {"id", account.id},
                 {"provider", account.provider},
@@ -291,6 +312,7 @@ void LocalApiServer::configureAdminRoutes() {
                 {"enabled", account.enabled},
                 {"identity", account.email.empty() ? account.displayName : account.email},
                 {"usage", usage ? nlohmann::json(*usage) : nlohmann::json(nullptr)},
+                {"quota_buckets", std::move(quotaBuckets)},
             });
         }
 

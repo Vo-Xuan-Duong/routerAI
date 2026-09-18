@@ -29,12 +29,47 @@ std::int64_t parseDurationSeconds(const std::string& value) {
     return seconds;
 }
 
+std::int64_t parseIso8601(const std::string& value) {
+    int y = 0, m = 0, d = 0, h = 0, min = 0, s = 0;
+    if (std::sscanf(value.c_str(), "%4d-%2d-%2dT%2d:%2d:%2d", &y, &m, &d, &h, &min, &s) == 6) {
+        std::tm tm{};
+        tm.tm_year = y - 1900;
+        tm.tm_mon = m - 1;
+        tm.tm_mday = d;
+        tm.tm_hour = h;
+        tm.tm_min = min;
+        tm.tm_sec = s;
+        tm.tm_isdst = 0;
+#ifdef _WIN32
+        return static_cast<std::int64_t>(_mkgmtime(&tm));
+#else
+        return static_cast<std::int64_t>(timegm(&tm));
+#endif
+    }
+    return 0;
+}
+
 std::string trimCopy(std::string value) {
     const auto notSpace = [](unsigned char ch) { return !std::isspace(ch); };
     const auto first = std::find_if(value.begin(), value.end(), notSpace);
     if (first == value.end()) return {};
     const auto last = std::find_if(value.rbegin(), value.rend(), notSpace).base();
     return std::string(first, last);
+}
+
+std::vector<std::string> splitTabs(const std::string& str) {
+    std::vector<std::string> parts;
+    std::size_t start = 0;
+    while (start < str.size()) {
+        const auto pos = str.find('\t', start);
+        if (pos == std::string::npos) {
+            parts.push_back(trimCopy(str.substr(start)));
+            break;
+        }
+        parts.push_back(trimCopy(str.substr(start, pos - start)));
+        start = pos + 1;
+    }
+    return parts;
 }
 
 std::string labelFromLine(
@@ -107,10 +142,6 @@ QuotaSnapshot AntigravityCli::readQuota() const {
         throw std::runtime_error("Antigravity CLI (`agy`) is not installed");
     }
 
-    // Text output is intentionally preferred here. agy has supported a
-    // read-only /usage print-mode surface since 1.1.12, while some releases
-    // have emitted malformed raw-newline JSON. The parser accepts the visible
-    // 'N% remaining' representation as well as tab-separated records.
     const auto result = ProcessRunner::runCapture("agy -p \"/usage\"");
     if (result.exitCode != 0) {
         throw std::runtime_error(
@@ -118,14 +149,16 @@ QuotaSnapshot AntigravityCli::readQuota() const {
             std::to_string(result.exitCode) + "): " + trim(result.output));
     }
 
+    return parseQuotaOutput(result.output);
+}
+
+QuotaSnapshot AntigravityCli::parseQuotaOutput(const std::string& output) {
     QuotaSnapshot snapshot;
-    std::istringstream input(result.output);
+    std::istringstream input(output);
     std::string line;
     std::string previous;
     std::unordered_set<std::string> seen;
-    static const std::regex remainingPattern(
-        R"(([0-9]+(?:\.[0-9]+)?)\s*%\s*remaining)",
-        std::regex::icase);
+    static const std::regex percentRegex(R"(([0-9]+(?:\.[0-9]+)?)\s*%)");
     static const std::regex refreshPattern(
         R"((?:refreshes|resets)\s+in\s+([^\t\r\n]+))",
         std::regex::icase);
@@ -139,24 +172,131 @@ QuotaSnapshot AntigravityCli::readQuota() const {
             continue;
         }
 
-        std::smatch remainingMatch;
-        if (!std::regex_search(line, remainingMatch, remainingPattern)) {
+        // Check for tab-separated output first (agy 1.1.12+ / 1.2+ TSV format)
+        if (line.find('\t') != std::string::npos) {
+            const auto parts = splitTabs(line);
+            int percentCol = -1;
+            double percentVal = 0.0;
+
+            for (int i = 0; i < static_cast<int>(parts.size()); ++i) {
+                std::smatch match;
+                if (std::regex_search(parts[static_cast<std::size_t>(i)], match, percentRegex)) {
+                    try {
+                        percentVal = std::stod(match[1].str());
+                        percentCol = i;
+                        break;
+                    } catch (...) {}
+                }
+            }
+
+            if (percentCol >= 0) {
+                percentVal = std::clamp(percentVal, 0.0, 100.0);
+                std::string model;
+                std::string limit;
+                if (percentCol >= 2) {
+                    model = parts[0];
+                    limit = parts[1];
+                } else if (percentCol == 1) {
+                    limit = parts[0];
+                }
+
+                // Strip trailing "Remaining" / "remaining" from limit name
+                std::string lowerLimit = limit;
+                std::transform(lowerLimit.begin(), lowerLimit.end(), lowerLimit.begin(), [](unsigned char ch) {
+                    return static_cast<char>(std::tolower(ch));
+                });
+                if (lowerLimit.ends_with("remaining")) {
+                    limit = trimCopy(limit.substr(0, limit.size() - 9));
+                }
+                while (!limit.empty() && (limit.back() == '-' || limit.back() == ':' || limit.back() == '|')) {
+                    limit.pop_back();
+                    limit = trimCopy(limit);
+                }
+
+                std::string label = model.empty() ? limit : (limit.empty() ? model : model + " - " + limit);
+                if (label.empty()) label = "Antigravity quota";
+
+                if (!seen.insert(label).second) {
+                    previous = line;
+                    continue;
+                }
+
+                double remaining = percentVal;
+                // Check if the column or line says "used" instead of remaining
+                std::string lowerLine = line;
+                std::transform(lowerLine.begin(), lowerLine.end(), lowerLine.begin(), [](unsigned char ch) {
+                    return static_cast<char>(std::tolower(ch));
+                });
+                if (lowerLine.find("used") != std::string::npos && lowerLine.find("remaining") == std::string::npos) {
+                    remaining = 100.0 - percentVal;
+                }
+
+                QuotaBucket bucket;
+                bucket.limitId = label;
+                bucket.limitName = label;
+                bucket.model = model.empty() ? label : model;
+                bucket.planType = "antigravity";
+                if (remaining <= 0.0) {
+                    bucket.reachedType = "quota_exhausted";
+                }
+
+                QuotaWindow window;
+                window.name = limit.empty() ? "quota" : limit;
+                window.usedPercent = 100.0 - remaining;
+
+                // Check for timestamp or duration in subsequent columns
+                if (static_cast<std::size_t>(percentCol + 1) < parts.size()) {
+                    const std::string& resetStr = parts[static_cast<std::size_t>(percentCol + 1)];
+                    std::int64_t resetsAt = parseIso8601(resetStr);
+                    if (resetsAt <= 0) {
+                        const std::int64_t seconds = parseDurationSeconds(resetStr);
+                        if (seconds > 0) resetsAt = now + seconds;
+                    }
+                    if (resetsAt > 0) {
+                        window.resetsAtUnix = resetsAt;
+                        if (resetsAt > now) {
+                            window.windowDurationMinutes = (resetsAt - now) / 60;
+                        }
+                    }
+                }
+
+                bucket.windows.push_back(std::move(window));
+                snapshot.buckets.push_back(std::move(bucket));
+                anyAllowed = anyAllowed || remaining > 0.0;
+                previous = line;
+                continue;
+            }
+        }
+
+        // Regular text parsing (legacy or space-delimited formats)
+        std::smatch percentMatch;
+        if (!std::regex_search(line, percentMatch, percentRegex)) {
             previous = line;
             continue;
         }
 
-        double remaining = 0.0;
+        double percentVal = 0.0;
         try {
-            remaining = std::stod(remainingMatch[1].str());
+            percentVal = std::stod(percentMatch[1].str());
         } catch (...) {
             previous = line;
             continue;
         }
-        remaining = std::clamp(remaining, 0.0, 100.0);
+        percentVal = std::clamp(percentVal, 0.0, 100.0);
+
+        std::string lowerLine = line;
+        std::transform(lowerLine.begin(), lowerLine.end(), lowerLine.begin(), [](unsigned char ch) {
+            return static_cast<char>(std::tolower(ch));
+        });
+
+        double remaining = percentVal;
+        if (lowerLine.find("used") != std::string::npos && lowerLine.find("remaining") == std::string::npos) {
+            remaining = 100.0 - percentVal;
+        }
 
         std::string label = labelFromLine(
             line,
-            static_cast<std::size_t>(remainingMatch.position()),
+            static_cast<std::size_t>(percentMatch.position()),
             previous);
         if (label.empty()) {
             label = "Antigravity quota";

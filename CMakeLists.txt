@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 if(WIN32)
-    add_compile_definitions(_WIN32_WINNT=0x0A00 WINVER=0x0A00)
+    add_compile_definitions(_WIN32_WINNT=0x0A00 WINVER=0x0A00 _CRT_SECURE_NO_WARNINGS)
 endif()
 
 configure_file(
@@ -123,8 +123,10 @@ if(BUILD_TESTING)
         tests/ProviderMetadataTests.cpp
         src/net/HttpClient.cpp
         src/providers/antigravity/AntigravityApiClient.cpp
+        src/providers/antigravity/AntigravityCli.cpp
         src/providers/zai/ZaiClient.cpp
         src/providers/zai/ZaiProvider.cpp
+        src/system/ProcessRunner.cpp
     )
     target_include_directories(router_provider_metadata_tests PRIVATE src ${CMAKE_CURRENT_BINARY_DIR}/generated)
     target_link_libraries(router_provider_metadata_tests PRIVATE CURL::libcurl)

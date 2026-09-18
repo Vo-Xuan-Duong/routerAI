@@ -161,6 +161,11 @@ void LocalApiServer::configureProviderAdminRoutes() {
             const auto body = nlohmann::json::parse(request.body);
             const std::string id = requireString(body, "id");
             const auto outcome = accounts_.refreshAccountStatus(id);
+            if (outcome.auth.authenticated && (outcome.account.provider == "codex" || (outcome.account.provider == "antigravity" && outcome.account.providerMode == "consumer-cli"))) {
+                try {
+                    accounts_.readQuota(id);
+                } catch (...) {}
+            }
             routing_.syncDefaultGroups();
             setAdminJson(response, 200, {{"ok", true}, {"account", accountJson(outcome.account)}, {"detail", outcome.auth.detail}});
         } catch (const std::exception& exception) {
