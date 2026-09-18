@@ -217,6 +217,7 @@ void ManagementApp::showUsageDashboard() {
         "Account ID",
         "Quota high -> low",
         "Provider",
+        "Priority high -> low",
         "Health",
     };
 
@@ -305,6 +306,13 @@ void ManagementApp::showUsageDashboard() {
             std::stable_sort(rows.begin(), rows.end(), [](const UsageRow& left, const UsageRow& right) {
                 if (left.account.provider != right.account.provider) {
                     return left.account.provider < right.account.provider;
+                }
+                return left.account.id < right.account.id;
+            });
+        } else if (sortMode == 3) {
+            std::stable_sort(rows.begin(), rows.end(), [](const UsageRow& left, const UsageRow& right) {
+                if (left.account.priority != right.account.priority) {
+                    return left.account.priority > right.account.priority;
                 }
                 return left.account.id < right.account.id;
             });
