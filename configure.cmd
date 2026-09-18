@@ -59,8 +59,16 @@ if /i not "!VSCMD_ARG_TGT_ARCH!"=="x64" (
 )
 
 if exist build\CMakeCache.txt (
-  findstr /i /c:"mingw" /c:"VCPKG_TARGET_TRIPLET:UNINITIALIZED=x64-mingw" /c:"CMAKE_GENERATOR:INTERNAL=Ninja" build\CMakeCache.txt >nul 2>&1
-  rem A cache alone is not sufficient; configure below will regenerate safely.
+  if not exist build\build.ninja (
+    echo [routerAI] Removing incomplete CMake cache...
+    rmdir /s /q build
+  ) else (
+    findstr /i /c:"mingw" /c:"Hostx86/x86" /c:"Hostx64/x86" /c:"Hostx86\\x86" /c:"Hostx64\\x86" build\CMakeCache.txt >nul 2>&1
+    if not errorlevel 1 (
+      echo [routerAI] Removing stale non-x64 build directory...
+      rmdir /s /q build
+    )
+  )
 )
 
 echo [routerAI] Configuring Release with MSVC x64 + Ninja + x64-windows...
