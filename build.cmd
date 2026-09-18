@@ -3,7 +3,8 @@ setlocal
 
 cd /d "%~dp0"
 
-if not exist build\CMakeCache.txt (
+if not exist build\build.ninja (
+  echo [routerAI] Build files are missing; configuring first...
   call configure.cmd
   if errorlevel 1 exit /b 1
 )
