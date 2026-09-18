@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.8.4 - Routing health
+
+### Added
+
+- Side-effect-free `RoutingManager::preview` APIs for inspecting a routing decision without consuming it.
+- Routing Health TUI screen for all routing groups.
+- Primary-candidate preview using the same selection rules as real routing.
+- Automatic failover preview by excluding the primary candidate and evaluating the next eligible backend.
+- Routing-group member diagnostics including status, priority, latest quota and cooldown state.
+- Regression coverage proving round-robin previews do not advance the persistent cursor.
+
+### Changed
+
+- Version bumped to 0.8.4.
+- Windows and Linux package filenames now derive their version from `CMakeLists.txt` instead of release-specific hard-coded strings.
+- README package examples are version-neutral so release documentation does not drift.
+
+### Routing boundary
+
+- Automatic primary/backup preview remains limited to API-capable automatic groups.
+- Manual Codex and Antigravity consumer groups remain operator-controlled; Routing Health does not auto-cycle consumer subscriptions.
+- Previewing a round-robin group does not mutate its cursor or alter the next real request.
+
 ## 0.8.3 - Account priority controls
 
 ### Added
