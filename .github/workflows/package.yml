@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 env:
-  PACKAGE_VERSION: 0.7.0
+  PACKAGE_VERSION: 0.7.1
   VCPKG_REVISION: 386d7c478221b7ee0c97bfe6ea61dcf65121d564
 
 jobs:
