@@ -171,26 +171,145 @@ int ManagementApp::run() {
 }
 
 void ManagementApp::showUsageDashboard() {
-    const auto accounts = accounts_.listAccounts();
-    std::size_t ready = 0, warning = 0, disabled = 0;
-    std::map<std::string, std::size_t> providers;
-    struct UsageRow { Account account; std::optional<double> usage; };
+    struct UsageRow {
+        Account account;
+        std::optional<double> usage;
+    };
+
+    std::vector<Account> accountSnapshot;
     std::vector<UsageRow> usageRows;
+    std::map<std::string, std::size_t> providers;
+    std::vector<std::string> providerFilters = {"All providers"};
+    std::size_t ready = 0;
+    std::size_t warning = 0;
+    std::size_t disabled = 0;
+    double successRate = 100.0;
 
-    for (const auto& account : accounts) {
-        ++providers[account.provider];
-        if (!account.enabled) ++disabled;
-        else if (account.status == AccountStatus::Ready) ++ready;
-        else if (account.status == AccountStatus::Warning) ++warning;
-        usageRows.push_back({account, latestUsage(accounts_.listQuotaHistory(account.id, 100))});
-    }
+    int providerFilter = 0;
+    int healthFilter = 0;
+    int sortMode = 0;
+    std::size_t scrollOffset = 0;
+    std::string activity = "Dashboard loaded";
 
-    const auto logs = database_.listRequestLogs(1000);
-    std::size_t success = 0;
-    for (const auto& log : logs) if (log.success) ++success;
-    const double successRate = logs.empty()
-        ? 100.0
-        : 100.0 * static_cast<double>(success) / static_cast<double>(logs.size());
+    const std::vector<std::string> healthFilters = {
+        "All health",
+        "Ready",
+        "Attention",
+        "Disabled",
+    };
+    const std::vector<std::string> sortLabels = {
+        "Account ID",
+        "Quota high -> low",
+        "Provider",
+        "Health",
+    };
+
+    auto reload = [&] {
+        const std::string selectedProvider =
+            providerFilter >= 0 && static_cast<std::size_t>(providerFilter) < providerFilters.size()
+                ? providerFilters[static_cast<std::size_t>(providerFilter)]
+                : "All providers";
+
+        accountSnapshot = accounts_.listAccounts();
+        usageRows.clear();
+        providers.clear();
+        ready = 0;
+        warning = 0;
+        disabled = 0;
+
+        for (const auto& account : accountSnapshot) {
+            ++providers[account.provider];
+            if (!account.enabled) {
+                ++disabled;
+            } else if (account.status == AccountStatus::Ready) {
+                ++ready;
+            } else {
+                ++warning;
+            }
+            usageRows.push_back({account, latestUsage(accounts_.listQuotaHistory(account.id, 100))});
+        }
+
+        providerFilters.clear();
+        providerFilters.push_back("All providers");
+        for (const auto& [provider, count] : providers) {
+            (void)count;
+            providerFilters.push_back(provider);
+        }
+
+        providerFilter = 0;
+        const auto selected = std::find(providerFilters.begin(), providerFilters.end(), selectedProvider);
+        if (selected != providerFilters.end()) {
+            providerFilter = static_cast<int>(std::distance(providerFilters.begin(), selected));
+        }
+
+        const auto logs = database_.listRequestLogs(1000);
+        std::size_t success = 0;
+        for (const auto& log : logs) {
+            if (log.success) ++success;
+        }
+        successRate = logs.empty()
+            ? 100.0
+            : 100.0 * static_cast<double>(success) / static_cast<double>(logs.size());
+    };
+
+    auto visibleRows = [&] {
+        std::vector<UsageRow> rows;
+        rows.reserve(usageRows.size());
+
+        const std::string provider =
+            providerFilter >= 0 && static_cast<std::size_t>(providerFilter) < providerFilters.size()
+                ? providerFilters[static_cast<std::size_t>(providerFilter)]
+                : "All providers";
+
+        for (const auto& row : usageRows) {
+            if (provider != "All providers" && row.account.provider != provider) continue;
+
+            bool healthMatch = true;
+            if (healthFilter == 1) {
+                healthMatch = row.account.enabled && row.account.status == AccountStatus::Ready;
+            } else if (healthFilter == 2) {
+                healthMatch = row.account.enabled && row.account.status != AccountStatus::Ready;
+            } else if (healthFilter == 3) {
+                healthMatch = !row.account.enabled;
+            }
+            if (healthMatch) rows.push_back(row);
+        }
+
+        if (sortMode == 0) {
+            std::stable_sort(rows.begin(), rows.end(), [](const UsageRow& left, const UsageRow& right) {
+                return left.account.id < right.account.id;
+            });
+        } else if (sortMode == 1) {
+            std::stable_sort(rows.begin(), rows.end(), [](const UsageRow& left, const UsageRow& right) {
+                if (left.usage.has_value() != right.usage.has_value()) return left.usage.has_value();
+                if (left.usage && right.usage && *left.usage != *right.usage) return *left.usage > *right.usage;
+                return left.account.id < right.account.id;
+            });
+        } else if (sortMode == 2) {
+            std::stable_sort(rows.begin(), rows.end(), [](const UsageRow& left, const UsageRow& right) {
+                if (left.account.provider != right.account.provider) {
+                    return left.account.provider < right.account.provider;
+                }
+                return left.account.id < right.account.id;
+            });
+        } else {
+            auto rank = [](const Account& account) {
+                if (!account.enabled) return 4;
+                if (account.status == AccountStatus::Error || account.status == AccountStatus::AuthExpired) return 3;
+                if (account.status == AccountStatus::Limited || account.status == AccountStatus::Warning) return 2;
+                return 1;
+            };
+            std::stable_sort(rows.begin(), rows.end(), [&](const UsageRow& left, const UsageRow& right) {
+                const int leftRank = rank(left.account);
+                const int rightRank = rank(right.account);
+                if (leftRank != rightRank) return leftRank > rightRank;
+                return left.account.id < right.account.id;
+            });
+        }
+        return rows;
+    };
+
+    reload();
 
     auto screen = ScreenInteractive::Fullscreen();
     auto renderer = Renderer([&] {
@@ -200,8 +319,17 @@ void ManagementApp::showUsageDashboard() {
         }
         if (providerItems.empty()) providerItems.push_back(text("No providers configured") | dim);
 
+        auto filtered = visibleRows();
+        constexpr std::size_t kRowsPerPage = 8;
+        const std::size_t maxOffset = filtered.size() > kRowsPerPage
+            ? filtered.size() - kRowsPerPage
+            : 0;
+        scrollOffset = std::min(scrollOffset, maxOffset);
+
         Elements rows;
-        for (const auto& row : usageRows) {
+        const std::size_t endIndex = std::min(filtered.size(), scrollOffset + kRowsPerPage);
+        for (std::size_t index = scrollOffset; index < endIndex; ++index) {
+            const auto& row = filtered[index];
             const double ratio = row.usage ? std::clamp(*row.usage / 100.0, 0.0, 1.0) : 0.0;
             Element bar = row.usage
                 ? hbox({gauge(ratio) | flex, text(" " + percent(*row.usage)) | size(WIDTH, EQUAL, 8)})
@@ -217,32 +345,159 @@ void ManagementApp::showUsageDashboard() {
                 bar,
             }) | border);
         }
-        if (rows.empty()) rows.push_back(text("No accounts configured. Open Provider Console -> Add Provider.") | dim);
+        if (rows.empty()) {
+            rows.push_back(
+                text(accountSnapshot.empty()
+                    ? "No accounts configured. Open Provider Console -> Add Provider."
+                    : "No accounts match the current filters.") | dim);
+        }
 
         std::ostringstream successText;
         successText << std::fixed << std::setprecision(1) << successRate << '%';
+
+        std::ostringstream viewText;
+        viewText << "Showing " << (filtered.empty() ? 0 : scrollOffset + 1)
+                 << '-' << endIndex << " of " << filtered.size();
+
+        const std::string providerLabel =
+            providerFilter >= 0 && static_cast<std::size_t>(providerFilter) < providerFilters.size()
+                ? providerFilters[static_cast<std::size_t>(providerFilter)]
+                : "All providers";
+        const std::string healthLabel =
+            healthFilter >= 0 && static_cast<std::size_t>(healthFilter) < healthFilters.size()
+                ? healthFilters[static_cast<std::size_t>(healthFilter)]
+                : "All health";
+        const std::string sortLabel =
+            sortMode >= 0 && static_cast<std::size_t>(sortMode) < sortLabels.size()
+                ? sortLabels[static_cast<std::size_t>(sortMode)]
+                : "Account ID";
+
         return vbox({
-            hbox({text(" routerAI ") | bold | color(Color::Cyan), text(kVersion) | dim, filler(), text("Usage Dashboard ") | bold}),
+            hbox({
+                text(" routerAI ") | bold | color(Color::Cyan),
+                text(kVersion) | dim,
+                filler(),
+                text("Usage Dashboard ") | bold,
+            }),
             separator(),
             hbox({
-                vbox({text("Accounts") | dim, text(std::to_string(accounts.size())) | bold | center}) | border | flex,
+                vbox({text("Accounts") | dim, text(std::to_string(accountSnapshot.size())) | bold | center}) | border | flex,
                 vbox({text("Ready") | dim, text(std::to_string(ready)) | bold | color(Color::Green) | center}) | border | flex,
-                vbox({text("Warning") | dim, text(std::to_string(warning)) | bold | color(Color::Yellow) | center}) | border | flex,
+                vbox({text("Attention") | dim, text(std::to_string(warning)) | bold | color(Color::Yellow) | center}) | border | flex,
                 vbox({text("Disabled") | dim, text(std::to_string(disabled)) | bold | center}) | border | flex,
                 vbox({text("Req success") | dim, text(successText.str()) | bold | center}) | border | flex,
             }),
             hbox({
-                vbox({text("Providers") | bold, separator(), vbox(std::move(providerItems))}) | border | size(WIDTH, EQUAL, 25),
+                vbox({
+                    text("Providers") | bold,
+                    separator(),
+                    vbox(std::move(providerItems)),
+                    separator(),
+                    text("View") | bold,
+                    paragraph("Provider: " + providerLabel),
+                    paragraph("Health: " + healthLabel),
+                    paragraph("Sort: " + sortLabel),
+                    paragraph(viewText.str()),
+                }) | border | size(WIDTH, EQUAL, 30),
                 vbox(std::move(rows)) | frame | flex,
             }),
-            separator(), text("Enter / Esc / q  back") | dim,
+            separator(),
+            paragraph(activity) | dim,
+            text("r status refresh  u quota refresh  p provider  f health  s sort  Up/Down scroll  0 reset  Esc/q back") | dim,
         }) | border;
     });
+
     auto component = CatchEvent(renderer, [&](Event event) {
-        if (event == Event::Return || event == Event::Escape || event == Event::Character("q")) {
+        if (event == Event::Escape || event == Event::Character("q") || event == Event::Return) {
             screen.ExitLoopClosure()();
             return true;
         }
+
+        if (event == Event::Character("p")) {
+            providerFilter = providerFilters.empty()
+                ? 0
+                : (providerFilter + 1) % static_cast<int>(providerFilters.size());
+            scrollOffset = 0;
+            activity = "Provider filter: " + providerFilters[static_cast<std::size_t>(providerFilter)];
+            return true;
+        }
+        if (event == Event::Character("f")) {
+            healthFilter = (healthFilter + 1) % static_cast<int>(healthFilters.size());
+            scrollOffset = 0;
+            activity = "Health filter: " + healthFilters[static_cast<std::size_t>(healthFilter)];
+            return true;
+        }
+        if (event == Event::Character("s")) {
+            sortMode = (sortMode + 1) % static_cast<int>(sortLabels.size());
+            scrollOffset = 0;
+            activity = "Sort: " + sortLabels[static_cast<std::size_t>(sortMode)];
+            return true;
+        }
+        if (event == Event::Character("0")) {
+            providerFilter = 0;
+            healthFilter = 0;
+            sortMode = 0;
+            scrollOffset = 0;
+            activity = "Dashboard filters reset";
+            return true;
+        }
+        if (event == Event::ArrowDown) {
+            const auto filtered = visibleRows();
+            if (scrollOffset + 1 < filtered.size()) ++scrollOffset;
+            return true;
+        }
+        if (event == Event::ArrowUp) {
+            if (scrollOffset > 0) --scrollOffset;
+            return true;
+        }
+
+        if (event == Event::Character("r")) {
+            std::size_t refreshed = 0;
+            std::size_t attention = 0;
+            std::size_t failed = 0;
+            for (const auto& account : accounts_.listAccounts()) {
+                try {
+                    const auto outcome = accounts_.refreshAccountStatus(account.id);
+                    ++refreshed;
+                    if (!outcome.auth.authenticated) ++attention;
+                } catch (...) {
+                    ++failed;
+                }
+            }
+            routing_.syncDefaultGroups();
+            reload();
+            activity =
+                "Status refresh: " + std::to_string(refreshed) + " refreshed, " +
+                std::to_string(attention) + " attention, " +
+                std::to_string(failed) + " failed";
+            return true;
+        }
+
+        if (event == Event::Character("u")) {
+            std::size_t refreshed = 0;
+            std::size_t skipped = 0;
+            std::size_t failed = 0;
+            for (const auto& account : accounts_.listAccounts()) {
+                if (!supportsQuotaRefresh(account)) {
+                    ++skipped;
+                    continue;
+                }
+                try {
+                    accounts_.readQuota(account.id);
+                    ++refreshed;
+                } catch (...) {
+                    ++failed;
+                }
+            }
+            routing_.syncDefaultGroups();
+            reload();
+            activity =
+                "Quota refresh: " + std::to_string(refreshed) + " refreshed, " +
+                std::to_string(skipped) + " skipped, " +
+                std::to_string(failed) + " failed";
+            return true;
+        }
+
         return false;
     });
     screen.Loop(component);
