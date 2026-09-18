@@ -114,6 +114,7 @@ std::size_t MaintenanceManager::repairRoutingGroups() {
     std::size_t fixes = 0;
 
     for (auto group : routing_.listGroups()) {
+        bool changed = false;
         const auto before = group.accountIds.size();
         group.accountIds.erase(
             std::remove_if(
@@ -121,18 +122,19 @@ std::size_t MaintenanceManager::repairRoutingGroups() {
                 group.accountIds.end(),
                 [&](const std::string& id) { return !knownAccounts.contains(id); }),
             group.accountIds.end());
-        fixes += before - group.accountIds.size();
+        const auto removedMembers = before - group.accountIds.size();
+        if (removedMembers > 0) {
+            fixes += removedMembers;
+            changed = true;
+        }
 
         if (!group.manualAccountId.empty() && !knownAccounts.contains(group.manualAccountId)) {
             group.manualAccountId.clear();
             ++fixes;
+            changed = true;
         }
 
-        if (before != group.accountIds.size() ||
-            (group.manualAccountId.empty() &&
-             database_.findRoutingGroup(group.id)->manualAccountId != group.manualAccountId)) {
-            routing_.saveGroup(group);
-        }
+        if (changed) routing_.saveGroup(group);
     }
 
     routing_.syncDefaultGroups();
