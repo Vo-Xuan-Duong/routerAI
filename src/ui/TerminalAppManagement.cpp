@@ -146,6 +146,7 @@ int ManagementApp::run() {
             "routerAI " + std::string(kVersion),
             {
                 "Usage Dashboard",
+                "Quota Advisor",
                 "Account Overview",
                 "Provider Console",
                 "Request History",
@@ -158,12 +159,13 @@ int ManagementApp::run() {
 
         try {
             if (action == 0) showUsageDashboard();
-            else if (action == 1) manageAccountLifecycle();
-            else if (action == 2) providerConsole_.run();
-            else if (action == 3) showRequestHistory();
-            else if (action == 4) showConfigTransfer();
-            else if (action == 5) showMaintenance();
-            else if (action == 6) showWebAdmin();
+            else if (action == 1) showQuotaAdvisor();
+            else if (action == 2) manageAccountLifecycle();
+            else if (action == 3) providerConsole_.run();
+            else if (action == 4) showRequestHistory();
+            else if (action == 5) showConfigTransfer();
+            else if (action == 6) showMaintenance();
+            else if (action == 7) showWebAdmin();
             else return 0;
         } catch (const std::exception& exception) {
             showMessage("Operation failed", {exception.what()}, true);
@@ -502,6 +504,152 @@ void ManagementApp::showUsageDashboard() {
         return false;
     });
     screen.Loop(component);
+}
+
+void ManagementApp::showQuotaAdvisor() {
+    const auto candidateLabel = [&](const std::optional<RoutingCandidate>& candidate) {
+        if (!candidate) return std::string("no eligible account");
+        std::string label = candidate->account.id + " | " + toString(candidate->account.status);
+        if (candidate->latestUsedPercent) {
+            label += " | quota " + percent(*candidate->latestUsedPercent);
+        } else {
+            label += " | quota unknown";
+        }
+        return label;
+    };
+
+    const auto applyRecommendation = [&](const std::string& groupId, const RoutingCandidate& candidate) {
+        routing_.syncDefaultGroups();
+        auto group = routing_.findGroup(groupId);
+        if (!group) {
+            showMessage("Quota Advisor", {"Routing group not found: " + groupId}, true);
+            return;
+        }
+        if (std::find(group->accountIds.begin(), group->accountIds.end(), candidate.account.id) ==
+            group->accountIds.end()) {
+            showMessage(
+                "Quota Advisor",
+                {candidate.account.id + " is not a member of " + groupId + "."},
+                true);
+            return;
+        }
+
+        group->strategy = RoutingStrategy::Manual;
+        group->manualAccountId = candidate.account.id;
+        routing_.saveGroup(*group);
+        showMessage(
+            "Manual selection updated",
+            {
+                groupId + " -> " + candidate.account.id,
+                "This updates routerAI's manual selection only.",
+                "It does not copy credentials or switch an external desktop/browser session.",
+            });
+    };
+
+    while (true) {
+        routing_.syncDefaultGroups();
+        const auto codex = accounts_.selectAccount("codex", "subscription-runtime");
+        const auto antigravity = accounts_.selectAccount("antigravity", "consumer-cli");
+
+        const int action = chooseOption(
+            "Quota Advisor",
+            {
+                "Refresh supported consumer status + quota",
+                "Codex recommendation: " + candidateLabel(codex),
+                "Antigravity recommendation: " + candidateLabel(antigravity),
+                "Back",
+            },
+            "Recommendation order: READY before WARNING, known lower quota usage, higher priority, then account id. "
+            "Recommendations are operator-controlled and never switch external sessions automatically.");
+
+        if (action < 0 || action == 3) return;
+
+        if (action == 0) {
+            std::size_t refreshed = 0;
+            std::size_t failed = 0;
+            std::vector<std::string> lines;
+
+            for (const auto& account : accounts_.listAccounts()) {
+                if (!supportsQuotaRefresh(account)) continue;
+
+                try {
+                    const auto auth = accounts_.refreshAccountStatus(account.id);
+                    if (!auth.auth.authenticated) {
+                        ++failed;
+                        lines.push_back(
+                            account.id + ": " +
+                            (auth.auth.detail.empty()
+                                ? std::string("authentication needs attention")
+                                : auth.auth.detail));
+                        continue;
+                    }
+
+                    accounts_.readQuota(account.id);
+                    ++refreshed;
+                } catch (const std::exception& exception) {
+                    ++failed;
+                    lines.push_back(account.id + ": " + exception.what());
+                }
+            }
+
+            routing_.syncDefaultGroups();
+            lines.insert(lines.begin(), {
+                "Refreshed : " + std::to_string(refreshed),
+                "Failed    : " + std::to_string(failed),
+                "Scope     : Codex subscription runtime + Antigravity consumer CLI",
+            });
+            showMessage("Quota Advisor refresh", lines, failed > 0);
+            continue;
+        }
+
+        const bool codexSelected = action == 1;
+        const auto candidate = codexSelected ? codex : antigravity;
+        const std::string providerName = codexSelected ? "Codex" : "Antigravity";
+        const std::string groupId = codexSelected ? "codex-default" : "antigravity-default";
+
+        if (!candidate) {
+            showMessage(
+                providerName + " recommendation",
+                {
+                    "No eligible account is currently available.",
+                    "An eligible account must be enabled, outside cooldown, and READY or WARNING.",
+                    "Use refresh to update supported auth/quota state.",
+                },
+                true);
+            continue;
+        }
+
+        std::vector<std::string> lines = {
+            "Account  : " + candidate->account.id,
+            "Provider : " + candidate->account.provider,
+            "Mode     : " + candidate->account.providerMode,
+            "Identity : " + identity(candidate->account),
+            "Status   : " + toString(candidate->account.status),
+            "Quota    : " + (candidate->latestUsedPercent
+                ? percent(*candidate->latestUsedPercent)
+                : std::string("unknown")),
+            "Priority : " + std::to_string(candidate->account.priority),
+            "",
+            "Selection logic: health -> known/lower usage -> priority -> account id.",
+        };
+
+        const auto group = routing_.findGroup(groupId);
+        if (group && !group->manualAccountId.empty()) {
+            lines.push_back("Current manual selection: " + group->manualAccountId);
+        } else {
+            lines.push_back("Current manual selection: none");
+        }
+
+        const int choice = chooseOption(
+            providerName + " recommendation",
+            {"Set as manual routing selection", "Details only / back"},
+            candidateLabel(candidate));
+        if (choice == 0) {
+            applyRecommendation(groupId, *candidate);
+        } else if (choice == 1) {
+            showMessage(providerName + " recommendation", lines);
+        }
+    }
 }
 
 void ManagementApp::manageAccountLifecycle() {
