@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.8.1 - Interactive dashboard
+
+### Added
+
+- In-place status refresh from the Usage Dashboard with the `r` key.
+- In-place supported quota refresh with the `u` key.
+- Provider filtering, health filtering and four dashboard sort modes.
+- Up/Down scrolling for larger account sets and a visible filtered-row range.
+- Dashboard activity feedback showing refresh counts and current filter/sort changes.
+- One-key reset for dashboard view state.
+
+### Changed
+
+- Dashboard warning summary is now an `Attention` count covering every enabled non-ready account, not only the `WARNING` enum value.
+- Usage Dashboard is now operational rather than a read-only snapshot.
+- Version bumped to 0.8.1 and Windows package naming updated.
+
+### Provider boundary
+
+- Live quota refresh continues to call only existing supported quota readers.
+- Unsupported provider/modes are counted as skipped; no private or guessed quota endpoints are introduced.
+
 ## 0.8.0 - Account overview
 
 ### Added
