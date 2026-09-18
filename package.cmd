@@ -1,5 +1,13 @@
 @echo off
 setlocal
+
+set VERSION=
+for /f "tokens=3" %%V in ('findstr /b /c:"project(routerAI VERSION " "%~dp0CMakeLists.txt"') do set VERSION=%%V
+if not defined VERSION (
+  echo Could not resolve routerAI version from CMakeLists.txt.
+  exit /b 1
+)
+
 call "%~dp0build.cmd"
 if errorlevel 1 exit /b %errorlevel%
 
@@ -25,8 +33,8 @@ for %%D in (libstdc++-6.dll libgcc_s_seh-1.dll libgcc_s_dw2-1.dll libwinpthread-
   )
 )
 
-powershell -NoProfile -Command "Compress-Archive -Path '%DIST%\*' -DestinationPath '%~dp0dist\routerAI-0.8.3-windows-x64.zip' -Force"
+powershell -NoProfile -Command "Compress-Archive -Path '%DIST%\*' -DestinationPath '%~dp0dist\routerAI-%VERSION%-windows-x64.zip' -Force"
 if errorlevel 1 exit /b %errorlevel%
 
-echo Portable package: %~dp0dist\routerAI-0.8.3-windows-x64.zip
+echo Portable package: %~dp0dist\routerAI-%VERSION%-windows-x64.zip
 endlocal
