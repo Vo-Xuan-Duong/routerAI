@@ -2,7 +2,7 @@
 
 Multi-provider AI account/runtime manager, localhost OpenAI-compatible router, terminal control plane, and embedded Web Admin written in C++20.
 
-Current development release: **0.7.1**.
+Current release: **0.7.1**.
 
 routerAI separates four concerns:
 
@@ -481,7 +481,7 @@ GitHub build/test verification is **Linux-only**. Windows is validated locally w
 
 The package workflow is also Linux-only on GitHub Actions and runs manually or for `v*` tags. Development pushes therefore do not repeatedly consume Actions minutes.
 
-`0.7.0` passed Linux Configure + Build + CTest on PR #3. `0.7.1` is the maintenance follow-up and is merged only after its Linux PR verification passes.
+`0.7.0` passed Linux Configure + Build + CTest on PR #3. `0.7.1` passed Linux Configure + Build + CTest on PR #4 before merge.
 
 ## Architecture
 
@@ -525,7 +525,7 @@ The package workflow is also Linux-only on GitHub Actions and runs manually or f
 [done] provider smoke-test guide + opt-in PowerShell smoke script
 [done] desktop switching capability abstraction (fails closed when unsupported)
 
-[pending verification] Linux Configure + Build + CTest for the 0.7.1 PR
+[verified] Linux Configure + Build + CTest on PR #4
 [local verification] Windows test.cmd + package.cmd
 [provider-dependent] actual Codex Desktop external account switching
 [provider-dependent] actual Antigravity external profile switching
