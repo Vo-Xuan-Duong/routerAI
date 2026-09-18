@@ -102,7 +102,7 @@ The dashboard is an interactive terminal control surface. It shows:
 - recent request success rate
 - per-account provider/status/identity
 - provider and health filters
-- account ID, quota, provider and health sorting
+- account ID, quota, provider, priority and health sorting
 - keyboard scrolling for larger account sets
 
 Dashboard controls:
