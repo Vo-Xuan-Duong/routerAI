@@ -36,3 +36,34 @@ jobs:
 
       - name: CTest
         run: ctest --test-dir build --output-on-failure
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Activate MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Bootstrap vcpkg
+        shell: pwsh
+        run: |
+          git clone --filter=blob:none https://github.com/microsoft/vcpkg.git "$env:GITHUB_WORKSPACE\vcpkg"
+          git -C "$env:GITHUB_WORKSPACE\vcpkg" checkout "$env:VCPKG_REVISION"
+          & "$env:GITHUB_WORKSPACE\vcpkg\bootstrap-vcpkg.bat" -disableMetrics
+
+      - name: Configure
+        shell: cmd
+        env:
+          VCPKG_ROOT: ${{ github.workspace }}\vcpkg
+        run: configure.cmd
+
+      - name: Build
+        shell: cmd
+        run: build.cmd
+
+      - name: CTest
+        shell: cmd
+        run: test.cmd

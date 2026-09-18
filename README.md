@@ -2,7 +2,7 @@
 
 Multi-provider AI account/runtime manager, localhost OpenAI-compatible router, terminal control plane, and embedded Web Admin written in C++20.
 
-Current release: **0.8.4**.
+Current release: **0.8.5**.
 
 routerAI separates four concerns:
 
@@ -445,17 +445,27 @@ Helpers use `VCPKG_ROOT` when set; otherwise they default to:
 C:\dev\vcpkg
 ```
 
+Windows prerequisites:
+
+- Visual Studio 2022 or Build Tools 2022 with **Desktop development with C++**
+- CMake
+- Ninja
+- vcpkg
+
+`configure.cmd` automatically locates Visual Studio with `vswhere` and activates the x64 MSVC environment when `cl.exe` is not already on `PATH`.
+
 Development stack:
 
 ```text
-Compiler       MinGW/GCC
+Compiler       MSVC
 Generator      Ninja
 Build type     Release
-vcpkg triplet  x64-mingw-dynamic
+vcpkg triplet  x64-windows
+Minimum OS API Windows 10
 Executable     build\router.exe
 ```
 
-Do not mix MinGW/GCC with the MSVC `x64-windows` triplet.
+MinGW is not used for the Windows build because the current cpp-httplib dependency does not support/test MinGW on Windows.
 
 ## Binary / portable packaging
 
@@ -470,13 +480,13 @@ test
 package
 ```
 
-`package.cmd` assembles a portable directory and:
+`package.cmd` assembles a portable MSVC/x64-windows directory and:
 
 ```text
 routerAI-<version>-windows-x64.zip
 ```
 
-It copies vcpkg dynamic libraries and discoverable MinGW runtime DLLs into the portable package.
+It copies the required release DLLs from the vcpkg `x64-windows` runtime directory into the portable package.
 
 ### GitHub Linux packaging workflow
 
@@ -528,7 +538,7 @@ workflow_dispatch
 pull_request
 ```
 
-GitHub build/test verification is **Linux-only**. Windows is validated locally with `test.cmd` as requested.
+GitHub build/test verification runs on both **Linux and Windows** for pull requests and manual dispatches. The Windows job uses MSVC + Ninja + the same `configure.cmd` / `build.cmd` / `test.cmd` path used locally.
 
 The package workflow is also Linux-only on GitHub Actions and runs manually or for `v*` tags. Development pushes therefore do not repeatedly consume Actions minutes.
 
@@ -561,9 +571,12 @@ The package workflow is also Linux-only on GitHub Actions and runs manually or f
                  -> detect/launch + supported future switch adapters
 ```
 
-## 0.8.4 status
+## 0.8.5 status
 
 ```text
+[done] Windows source build migrated from unsupported MinGW to MSVC + x64-windows
+[done] Windows pull-request CI added to prevent platform-specific build regressions
+[done] explicit Windows 10 API target for cpp-httplib
 [done] side-effect-free routing preview API with round-robin cursor protection
 [done] Routing Health primary/backup failover preview for routing groups
 [done] package versions derived from CMake instead of hard-coded release numbers
@@ -585,7 +598,7 @@ The package workflow is also Linux-only on GitHub Actions and runs manually or f
 [done] desktop switching capability abstraction (fails closed when unsupported)
 
 [verified] Linux Configure + Build + CTest through PR #8
-[local verification] Windows test.cmd + package.cmd
+[verification] 0.8.5 Linux + Windows PR CI
 [provider-dependent] actual Codex Desktop external account switching
 [provider-dependent] actual Antigravity external profile switching
 [optional] native macOS Keychain backend

@@ -1,10 +1,14 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(routerAI VERSION 0.8.4 LANGUAGES CXX)
+project(routerAI VERSION 0.8.5 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+if(WIN32)
+    add_compile_definitions(_WIN32_WINNT=0x0A00 WINVER=0x0A00)
+endif()
 
 configure_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/src/Version.hpp.in
