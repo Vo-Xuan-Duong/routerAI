@@ -106,7 +106,7 @@ std::vector<std::string> quotaSnapshotLines(const QuotaSnapshot& snapshot) {
             if (window.windowDurationMinutes) {
                 line += " over " + std::to_string(*window.windowDurationMinutes) + " min";
             }
-            lines.push_back(std::move(line));
+            lines.push_back(line);
         }
     }
 
