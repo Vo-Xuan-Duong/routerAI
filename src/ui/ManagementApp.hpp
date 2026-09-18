@@ -31,6 +31,7 @@ private:
 
     void showUsageDashboard();
     void showQuotaAdvisor();
+    void showRoutingHealth();
     void manageAccountLifecycle();
     void showRequestHistory();
     void showConfigTransfer();
