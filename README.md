@@ -2,7 +2,7 @@
 
 Multi-provider AI account/runtime manager, localhost OpenAI-compatible router, terminal control plane, and embedded Web Admin written in C++20.
 
-Current release: **0.8.0**.
+Current release: **0.8.1**.
 
 routerAI separates four concerns:
 
@@ -93,13 +93,29 @@ routerAI
 
 ### Usage Dashboard
 
-The dashboard shows:
+The dashboard is an interactive terminal control surface. It shows:
 
 - account/provider counts
-- ready/warning/disabled counts
+- ready/attention/disabled counts
 - latest normalized quota usage bars
 - recent request success rate
 - per-account provider/status/identity
+- provider and health filters
+- account ID, quota, provider and health sorting
+- keyboard scrolling for larger account sets
+
+Dashboard controls:
+
+```text
+r         refresh all account statuses
+u         refresh all supported quota snapshots
+p         cycle provider filter
+f         cycle health filter
+s         cycle sort mode
+Up/Down   scroll account rows
+0         reset filters/sort
+Esc/q     back
+```
 
 ### Account overview and lifecycle
 
@@ -512,9 +528,10 @@ The package workflow is also Linux-only on GitHub Actions and runs manually or f
                  -> detect/launch + supported future switch adapters
 ```
 
-## 0.8.0 status
+## 0.8.1 status
 
 ```text
+[done] interactive Usage Dashboard with refresh/filter/sort/scroll controls
 [done] interactive Account Overview with per-account status/quota refresh
 [done] best-effort bulk status/quota refresh with per-account failures isolated
 [done] remove/enable/disable account controls
