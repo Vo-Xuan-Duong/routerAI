@@ -53,8 +53,8 @@ if (-not $Completion) {
 }
 
 $router = @{ group = $Group; models = @{} }
-if (-not [string]::IsNullOrWhiteSpace($ZaiModel)) { $router.models.zai = $ZaiModel }
-if (-not [string]::IsNullOrWhiteSpace($AntigravityModel)) { $router.models.antigravity = $AntigravityModel }
+if (-not [string]::IsNullOrWhiteSpace($ZaiModel)) { $router.models["zai"] = $ZaiModel }
+if (-not [string]::IsNullOrWhiteSpace($AntigravityModel)) { $router.models["antigravity"] = $AntigravityModel }
 
 $body = @{
     model = $Model
