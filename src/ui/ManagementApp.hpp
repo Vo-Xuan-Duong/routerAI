@@ -33,6 +33,7 @@ private:
     void manageAccountLifecycle();
     void showRequestHistory();
     void showConfigTransfer();
+    void showMaintenance();
     void showWebAdmin();
 
     int chooseOption(
