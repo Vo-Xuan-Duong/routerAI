@@ -560,6 +560,7 @@ void ManagementApp::showQuotaAdvisor() {
                 "Back",
             },
             "Recommendation order: READY before WARNING, known lower quota usage, higher priority, then account id. "
+            "Quota values are the last recorded snapshots; use refresh for current supported provider data. "
             "Recommendations are operator-controlled and never switch external sessions automatically.");
 
         if (action < 0 || action == 3) return;
@@ -629,9 +630,13 @@ void ManagementApp::showQuotaAdvisor() {
                 ? percent(*candidate->latestUsedPercent)
                 : std::string("unknown")),
             "Priority : " + std::to_string(candidate->account.priority),
-            "",
-            "Selection logic: health -> known/lower usage -> priority -> account id.",
         };
+        const auto quotaHistory = accounts_.listQuotaHistory(candidate->account.id, 1);
+        lines.push_back(
+            "Captured : " +
+            (quotaHistory.empty() ? std::string("no quota snapshot") : quotaHistory.front().capturedAt));
+        lines.push_back("");
+        lines.push_back("Selection logic: health -> known/lower usage -> priority -> account id.");
 
         const auto group = routing_.findGroup(groupId);
         if (group && !group->manualAccountId.empty()) {
