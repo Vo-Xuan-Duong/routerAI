@@ -11,6 +11,6 @@ if not exist build\router.exe (
   exit /b 1
 )
 
-set "PATH=%CD%\build\vcpkg_installed\x64-mingw-dynamic\bin;C:\Mingw64\bin;%PATH%"
+set "PATH=%CD%\build\vcpkg_installed\x64-windows\bin;%PATH%"
 build\router.exe
 exit /b %errorlevel%
