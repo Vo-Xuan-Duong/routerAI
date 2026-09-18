@@ -28,6 +28,7 @@
 
 ### Verification
 
+- PR #4 passed Linux Configure, Build and CTest before merge into `main`.
 - GitHub Actions remains Linux-only.
 - Windows validation remains local with `test.cmd` and `package.cmd`.
 
