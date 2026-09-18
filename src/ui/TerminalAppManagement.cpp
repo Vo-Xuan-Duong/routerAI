@@ -160,6 +160,7 @@ int ManagementApp::run() {
             {
                 "Usage Dashboard",
                 "Quota Advisor",
+                "Routing Health",
                 "Account Overview",
                 "Provider Console",
                 "Request History",
@@ -173,12 +174,13 @@ int ManagementApp::run() {
         try {
             if (action == 0) showUsageDashboard();
             else if (action == 1) showQuotaAdvisor();
-            else if (action == 2) manageAccountLifecycle();
-            else if (action == 3) providerConsole_.run();
-            else if (action == 4) showRequestHistory();
-            else if (action == 5) showConfigTransfer();
-            else if (action == 6) showMaintenance();
-            else if (action == 7) showWebAdmin();
+            else if (action == 2) showRoutingHealth();
+            else if (action == 3) manageAccountLifecycle();
+            else if (action == 4) providerConsole_.run();
+            else if (action == 5) showRequestHistory();
+            else if (action == 6) showConfigTransfer();
+            else if (action == 7) showMaintenance();
+            else if (action == 8) showWebAdmin();
             else return 0;
         } catch (const std::exception& exception) {
             showMessage("Operation failed", {exception.what()}, true);
@@ -676,6 +678,150 @@ void ManagementApp::showQuotaAdvisor() {
         } else if (choice == 1) {
             showMessage(providerName + " recommendation", lines);
         }
+    }
+}
+
+void ManagementApp::showRoutingHealth() {
+    const auto decisionLabel = [](const std::optional<RoutingDecision>& decision) {
+        if (!decision) return std::string("none");
+        std::string label =
+            decision->candidate.account.id + " (" + toString(decision->candidate.account.status);
+        if (decision->candidate.latestUsedPercent) {
+            label += ", quota " + percent(*decision->candidate.latestUsedPercent);
+        }
+        label += ")";
+        return label;
+    };
+
+    while (true) {
+        routing_.syncDefaultGroups();
+        const auto groups = routing_.listGroups();
+        std::vector<std::string> entries;
+        entries.reserve(groups.size() + 2);
+
+        for (const auto& group : groups) {
+            const auto primary = routing_.preview(group.id);
+            std::optional<RoutingDecision> backup;
+            if (primary && group.strategy != RoutingStrategy::Manual) {
+                backup = routing_.preview(
+                    group.id,
+                    std::vector<std::string>{primary->candidate.account.id});
+            }
+
+            std::string line =
+                group.id + " | " + toString(group.strategy) +
+                " | " + (group.enabled ? "ON" : "OFF") +
+                " | primary " + decisionLabel(primary);
+            if (group.strategy == RoutingStrategy::Manual) {
+                line += " | backup manual";
+            } else {
+                line += " | backup " + decisionLabel(backup);
+            }
+            entries.push_back(std::move(line));
+        }
+
+        const int refreshIndex = static_cast<int>(entries.size());
+        entries.push_back("Refresh all account statuses");
+        entries.push_back("Back");
+
+        const int selected = chooseOption(
+            "Routing Health",
+            entries,
+            "Preview is side-effect-free: it shows the account a real selection would choose without advancing round-robin state. "
+            "Automatic backup previews exclude the primary candidate. Consumer groups remain manual.");
+
+        if (selected < 0 || selected == static_cast<int>(entries.size()) - 1) return;
+
+        if (selected == refreshIndex) {
+            std::size_t refreshed = 0;
+            std::size_t attention = 0;
+            std::size_t failed = 0;
+            std::vector<std::string> lines;
+            for (const auto& account : accounts_.listAccounts()) {
+                try {
+                    const auto outcome = accounts_.refreshAccountStatus(account.id);
+                    ++refreshed;
+                    if (!outcome.auth.authenticated) ++attention;
+                } catch (const std::exception& exception) {
+                    ++failed;
+                    lines.push_back(account.id + ": " + exception.what());
+                }
+            }
+            routing_.syncDefaultGroups();
+            lines.insert(lines.begin(), {
+                "Refreshed : " + std::to_string(refreshed),
+                "Attention : " + std::to_string(attention),
+                "Failed    : " + std::to_string(failed),
+            });
+            showMessage("Routing health refresh", lines, failed > 0);
+            continue;
+        }
+
+        if (static_cast<std::size_t>(selected) >= groups.size()) continue;
+        const auto& group = groups[static_cast<std::size_t>(selected)];
+        const auto primary = routing_.preview(group.id);
+        std::optional<RoutingDecision> backup;
+        if (primary && group.strategy != RoutingStrategy::Manual) {
+            backup = routing_.preview(
+                group.id,
+                std::vector<std::string>{primary->candidate.account.id});
+        }
+
+        std::vector<std::string> lines = {
+            "Group      : " + group.id,
+            "Name       : " + group.displayName,
+            "Strategy   : " + toString(group.strategy),
+            std::string("Enabled    : ") + (group.enabled ? "yes" : "no"),
+            "Members    : " + std::to_string(group.accountIds.size()),
+            std::string("Completion capable: ") + (routing_.groupSupportsCompletions(group) ? "yes" : "no"),
+            std::string("Routable now      : ") + (primary ? "yes" : "no"),
+            "Primary    : " + decisionLabel(primary),
+        };
+
+        if (group.strategy == RoutingStrategy::Manual) {
+            lines.push_back(
+                "Manual     : " +
+                (group.manualAccountId.empty() ? std::string("none") : group.manualAccountId));
+            lines.push_back("Backup     : operator-controlled (Quota Advisor / routing group selection)");
+        } else {
+            lines.push_back("Backup     : " + decisionLabel(backup));
+        }
+
+        lines.push_back("");
+        lines.push_back("Members:");
+        for (const auto& accountId : group.accountIds) {
+            const auto account = accounts_.findAccount(accountId);
+            if (!account) {
+                lines.push_back("  " + accountId + " | MISSING");
+                continue;
+            }
+
+            std::string member =
+                "  " + account->id + " | " + account->provider + "/" + account->providerMode +
+                " | " + (account->enabled ? toString(account->status) : "DISABLED") +
+                " | pri " + std::to_string(account->priority) +
+                " | quota " + latestUsageText(accounts_, *account);
+            if (account->cooldownUntilUnix) {
+                member += " | cooldown " + std::to_string(*account->cooldownUntilUnix);
+            }
+            lines.push_back(std::move(member));
+        }
+
+        if (!primary) {
+            lines.push_back("");
+            lines.push_back(
+                group.strategy == RoutingStrategy::Manual
+                    ? "No eligible selected account. Choose a manual account before routing through this group."
+                    : "No eligible automatic candidate. Check account auth/status, enabled state and cooldown.");
+        } else if (group.strategy != RoutingStrategy::Manual && !backup) {
+            lines.push_back("");
+            lines.push_back("No second eligible automatic candidate is currently available for failover.");
+        }
+
+        showMessage(
+            "Routing Health - " + group.id,
+            lines,
+            group.enabled && !primary);
     }
 }
 
