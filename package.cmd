@@ -25,8 +25,8 @@ for %%D in (libstdc++-6.dll libgcc_s_seh-1.dll libgcc_s_dw2-1.dll libwinpthread-
   )
 )
 
-powershell -NoProfile -Command "Compress-Archive -Path '%DIST%\*' -DestinationPath '%~dp0dist\routerAI-0.8.2-windows-x64.zip' -Force"
+powershell -NoProfile -Command "Compress-Archive -Path '%DIST%\*' -DestinationPath '%~dp0dist\routerAI-0.8.3-windows-x64.zip' -Force"
 if errorlevel 1 exit /b %errorlevel%
 
-echo Portable package: %~dp0dist\routerAI-0.8.2-windows-x64.zip
+echo Portable package: %~dp0dist\routerAI-0.8.3-windows-x64.zip
 endlocal
