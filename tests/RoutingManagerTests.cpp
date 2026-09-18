@@ -92,6 +92,20 @@ int main() {
         require(persisted->lastIndex == 2, "round robin cursor must persist");
         require(persisted->accountIds.size() == 3, "routing group members must persist");
 
+        const auto previewPrimary = routing.preview("rr", 1000);
+        require(previewPrimary && previewPrimary->candidate.account.id == "zai-01",
+                "round robin preview must expose the next candidate");
+        const auto afterPrimaryPreview = database.findRoutingGroup("rr");
+        require(afterPrimaryPreview && afterPrimaryPreview->lastIndex == 2,
+                "routing preview must not advance the round robin cursor");
+
+        const auto previewBackup = routing.preview("rr", 1000, {"zai-01"});
+        require(previewBackup && previewBackup->candidate.account.id == "zai-02",
+                "routing preview exclusion must expose the next failover candidate");
+        const auto afterBackupPreview = database.findRoutingGroup("rr");
+        require(afterBackupPreview && afterBackupPreview->lastIndex == 2,
+                "failover preview must not mutate the round robin cursor");
+
         database.insertAccount(account("codex-01", "codex", "chatgpt"));
         database.insertAccount(account("antigravity-01", "antigravity", "consumer-cli"));
         database.insertAccount(account("zai-coding-01", "zai", "coding-plan"));
