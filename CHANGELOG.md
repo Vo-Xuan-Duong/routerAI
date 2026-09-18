@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.8.3 - Account priority controls
+
+### Added
+
+- Validated `AccountManager::setAccountPriority` lifecycle operation.
+- Account Overview action to edit operator priority without changing config files or SQLite manually.
+- Priority values in Account Overview and Quota Advisor recommendation labels.
+- Dashboard priority-high-to-low sorting.
+- Regression coverage for priority persistence, range rejection and recommendation tie-breaking.
+
+### Behavior
+
+- Supported priority range is `-100000..100000`, matching secret-free config import bounds.
+- Higher values are preferred by the Priority routing strategy.
+- Consumer recommendation order remains health, known/lower quota usage, then priority, then stable account ID.
+- Changing priority does not alter credentials, auth state, quota snapshots or enabled state.
+
 ## 0.8.2 - Quota advisor
 
 ### Added

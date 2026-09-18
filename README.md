@@ -2,7 +2,7 @@
 
 Multi-provider AI account/runtime manager, localhost OpenAI-compatible router, terminal control plane, and embedded Web Admin written in C++20.
 
-Current release: **0.8.2**.
+Current release: **0.8.3**.
 
 routerAI separates four concerns:
 
@@ -102,7 +102,7 @@ The dashboard is an interactive terminal control surface. It shows:
 - recent request success rate
 - per-account provider/status/identity
 - provider and health filters
-- account ID, quota, provider and health sorting
+- account ID, quota, provider, priority and health sorting
 - keyboard scrolling for larger account sets
 
 Dashboard controls:
@@ -134,7 +134,9 @@ The recommendation is advisory until the operator selects it. Applying it update
 
 ### Account overview and lifecycle
 
-The main Account Overview is operational rather than read-only. From the same selectable terminal screen you can refresh one account's provider status, refresh supported live quota, enable/disable routing, inspect details, or remove the local account. It also provides best-effort bulk status and quota refresh so one failing account does not stop the remaining refreshes.
+The main Account Overview is operational rather than read-only. From the same selectable terminal screen you can refresh one account's provider status, refresh supported live quota, set its operator priority, enable/disable routing, inspect details, or remove the local account. It also provides best-effort bulk status and quota refresh so one failing account does not stop the remaining refreshes.
+
+Account priority is an integer from -100000 to 100000. Higher values are preferred by the Priority routing strategy and are used as a tie-break after health/quota in consumer recommendations.
 
 Accounts can be enabled/disabled without destroying provider auth/quota health.
 
@@ -543,9 +545,10 @@ The package workflow is also Linux-only on GitHub Actions and runs manually or f
                  -> detect/launch + supported future switch adapters
 ```
 
-## 0.8.2 status
+## 0.8.3 status
 
 ```text
+[done] Account priority editing from the TUI with validated persistence
 [done] Quota Advisor for mode-aware consumer recommendations + manual selection
 [done] interactive Usage Dashboard with refresh/filter/sort/scroll controls
 [done] interactive Account Overview with per-account status/quota refresh

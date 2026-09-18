@@ -71,11 +71,32 @@ int main() {
         selectorModeB.displayName = "Selector mode B";
         database.insertAccount(selectorModeB);
 
+        routerai::Account selectorModeBHigh = selectorModeB;
+        selectorModeBHigh.id = "selector-mode-b-high";
+        selectorModeBHigh.displayName = "Selector mode B high priority";
+        database.insertAccount(selectorModeBHigh);
+
+        const auto priorityLow = accounts.setAccountPriority("selector-mode-b", 50);
+        const auto priorityHigh = accounts.setAccountPriority("selector-mode-b-high", 250);
+        require(priorityLow.priority == 50, "account priority setter must return the persisted low priority");
+        require(priorityHigh.priority == 250, "account priority setter must return the persisted high priority");
+        require(
+            database.findAccount("selector-mode-b-high")->priority == 250,
+            "account priority setter must persist priority to SQLite");
+
+        bool invalidPriorityRejected = false;
+        try {
+            accounts.setAccountPriority("selector-mode-b", 100001);
+        } catch (const std::exception&) {
+            invalidPriorityRejected = true;
+        }
+        require(invalidPriorityRejected, "account priority setter must reject values outside the supported range");
+
         const auto modeBSelection = accounts.selectAccount("selector-test", "mode-b");
         require(modeBSelection.has_value(), "provider-mode account selection must find an eligible account");
         require(
-            modeBSelection->account.id == "selector-mode-b",
-            "provider-mode account selection must not mix provider modes");
+            modeBSelection->account.id == "selector-mode-b-high",
+            "provider-mode account selection must not mix modes and must prefer higher priority on equal health/quota");
 
         routerai::RoutingManager routing(database);
         routing.syncDefaultGroups();

@@ -74,6 +74,19 @@ std::string formatBytes(std::uintmax_t bytes) {
     return out.str();
 }
 
+std::optional<int> parsePriority(const std::string& value) {
+    try {
+        std::size_t consumed = 0;
+        const long long parsed = std::stoll(value, &consumed, 10);
+        if (consumed != value.size() || parsed < -100000 || parsed > 100000) {
+            return std::nullopt;
+        }
+        return static_cast<int>(parsed);
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
 bool supportsQuotaRefresh(const Account& account) {
     return account.provider == "codex" ||
         (account.provider == "antigravity" && account.providerMode == "consumer-cli");
@@ -204,6 +217,7 @@ void ManagementApp::showUsageDashboard() {
         "Account ID",
         "Quota high -> low",
         "Provider",
+        "Priority high -> low",
         "Health",
     };
 
@@ -292,6 +306,13 @@ void ManagementApp::showUsageDashboard() {
             std::stable_sort(rows.begin(), rows.end(), [](const UsageRow& left, const UsageRow& right) {
                 if (left.account.provider != right.account.provider) {
                     return left.account.provider < right.account.provider;
+                }
+                return left.account.id < right.account.id;
+            });
+        } else if (sortMode == 3) {
+            std::stable_sort(rows.begin(), rows.end(), [](const UsageRow& left, const UsageRow& right) {
+                if (left.account.priority != right.account.priority) {
+                    return left.account.priority > right.account.priority;
                 }
                 return left.account.id < right.account.id;
             });
@@ -509,7 +530,8 @@ void ManagementApp::showUsageDashboard() {
 void ManagementApp::showQuotaAdvisor() {
     const auto candidateLabel = [&](const std::optional<RoutingCandidate>& candidate) {
         if (!candidate) return std::string("no eligible account");
-        std::string label = candidate->account.id + " | " + toString(candidate->account.status);
+        std::string label = candidate->account.id + " | " + toString(candidate->account.status) +
+            " | pri " + std::to_string(candidate->account.priority);
         if (candidate->latestUsedPercent) {
             label += " | quota " + percent(*candidate->latestUsedPercent);
         } else {
@@ -668,6 +690,7 @@ void ManagementApp::manageAccountLifecycle() {
                 account.id + " | " + account.provider + "/" + account.providerMode + " | " +
                 (account.enabled ? toString(account.status) : "DISABLED") +
                 " | quota " + latestUsageText(accounts_, account) +
+                " | pri " + std::to_string(account.priority) +
                 " | " + identity(account));
         }
 
@@ -750,8 +773,9 @@ void ManagementApp::manageAccountLifecycle() {
         const std::string toggle = account.enabled ? "Disable account" : "Enable account";
         const int action = chooseOption(
             account.id,
-            {"Refresh status", "Refresh quota", toggle, "Remove account", "Details", "Back"},
-            account.provider + " / " + account.providerMode + " / " + identity(account));
+            {"Refresh status", "Refresh quota", "Set priority", toggle, "Remove account", "Details", "Back"},
+            account.provider + " / " + account.providerMode + " / priority " +
+                std::to_string(account.priority) + " / " + identity(account));
 
         if (action == 0) {
             const auto outcome = accounts_.refreshAccountStatus(account.id);
@@ -780,10 +804,36 @@ void ManagementApp::manageAccountLifecycle() {
             routing_.syncDefaultGroups();
             showMessage("Quota snapshot", quotaSnapshotLines(snapshot));
         } else if (action == 2) {
+            const auto value = promptInput(
+                "Set priority - " + account.id,
+                std::to_string(account.priority));
+            if (!value) continue;
+
+            const auto priority = parsePriority(*value);
+            if (!priority) {
+                showMessage(
+                    "Invalid priority",
+                    {
+                        "Enter a whole number between -100000 and 100000.",
+                        "Higher values win priority tie-breaks and the Priority routing strategy.",
+                    },
+                    true);
+                continue;
+            }
+
+            const auto updated = accounts_.setAccountPriority(account.id, *priority);
+            routing_.syncDefaultGroups();
+            showMessage(
+                "Priority updated",
+                {
+                    updated.id + " -> " + std::to_string(updated.priority),
+                    "Higher values are preferred when priority is used as a routing/recommendation tie-break.",
+                });
+        } else if (action == 3) {
             accounts_.setAccountEnabled(account.id, !account.enabled);
             routing_.syncDefaultGroups();
             showMessage("Account updated", {account.id + (account.enabled ? " disabled" : " enabled")});
-        } else if (action == 3) {
+        } else if (action == 4) {
             const int confirm = chooseOption(
                 "Remove " + account.id + "?",
                 {"Cancel", "Remove permanently"},
@@ -793,7 +843,7 @@ void ManagementApp::manageAccountLifecycle() {
                 routing_.syncDefaultGroups();
                 showMessage("Account removed", {account.id});
             }
-        } else if (action == 4) {
+        } else if (action == 5) {
             const auto current = accounts_.findAccount(account.id).value_or(account);
             std::vector<std::string> lines = {
                 "Provider : " + current.provider,
