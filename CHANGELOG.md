@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.6 - Windows x64 environment bootstrap
+
+### Fixed
+
+- Windows configure always activates the x64 MSVC environment, even when a generic Developer Command Prompt already exposes an x86 `cl.exe`.
+- Incomplete or stale non-x64 CMake caches are discarded before reconfiguration.
+- `build.cmd` now reconfigures when `build.ninja` is missing and activates the x64 MSVC environment before invoking Ninja.
+- Prevents x86/x64 package-architecture mismatches such as 64-bit CURL being rejected by a 32-bit compiler context.
+
 ## 0.8.5 - Windows MSVC build
 
 ### Fixed
