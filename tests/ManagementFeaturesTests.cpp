@@ -6,6 +6,7 @@
 #include "security/CredentialStore.hpp"
 
 #include <filesystem>
+#include <sqlite3.h>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -210,6 +211,33 @@ int main() {
         require(retentionResult.afterRows == 3, "retention row cap was not enforced");
         require(retentionResult.removedRows == 2, "retention removed-row count mismatch");
         require(maintenanceDb.listRequestLogs(10).size() == 3, "retention did not keep exactly three newest rows");
+
+        sqlite3* rawDb = nullptr;
+        require(sqlite3_open((root / "maintenance.db").string().c_str(), &rawDb) == SQLITE_OK,
+            "failed to open maintenance database for age-retention setup");
+        char* sqliteError = nullptr;
+        const int ageSetup = sqlite3_exec(
+            rawDb,
+            "UPDATE request_logs SET created_at = datetime('now', '-45 days') "
+            "WHERE id = (SELECT MIN(id) FROM request_logs);",
+            nullptr,
+            nullptr,
+            &sqliteError);
+        if (ageSetup != SQLITE_OK) {
+            const std::string message = sqliteError ? sqliteError : "unknown sqlite error";
+            sqlite3_free(sqliteError);
+            sqlite3_close(rawDb);
+            throw std::runtime_error("failed to prepare old request log: " + message);
+        }
+        sqlite3_close(rawDb);
+
+        routerai::RequestLogRetentionPolicy ageRetention;
+        ageRetention.maxRows = 100;
+        ageRetention.maxAgeDays = 30;
+        const auto ageResult = maintenance.pruneRequestLogs(ageRetention);
+        require(ageResult.beforeRows == 3, "age retention before-row count mismatch");
+        require(ageResult.afterRows == 2, "age retention did not remove the expired row");
+        require(ageResult.removedRows == 1, "age retention removed-row count mismatch");
 
         std::filesystem::remove_all(root, ignored);
         std::cout << "ManagementFeaturesTests: OK\n";
