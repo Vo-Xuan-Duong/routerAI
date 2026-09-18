@@ -30,6 +30,7 @@ private:
     TerminalApp providerConsole_;
 
     void showUsageDashboard();
+    void showQuotaAdvisor();
     void manageAccountLifecycle();
     void showRequestHistory();
     void showConfigTransfer();
